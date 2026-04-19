@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2196F3;
+  --color-surface: #FFFFFF;
+  --color-surface-light: #F7F9FB;
+  --color-dark: #191C1E;
+  
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+}
+
+@layer base {
+  body {
+    @apply bg-surface-light text-dark font-sans antialiased;
+    font-family: 'Inter', 'Manrope', sans-serif;
+  }
+}
+
+@layer components {
+  .glass-nav {
+    @apply sticky top-0 z-50 bg-white/70 backdrop-blur-md border-b border-white/20;
+  }
+  
+  .card-premium {
+    @apply bg-white rounded-2xl p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-white px-6 py-2 rounded-xl font-medium transition-transform active:scale-95 disabled:opacity-50;
+  }
+}
