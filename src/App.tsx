@@ -145,6 +145,31 @@ function MobileNavLink({ to, icon, label }: { to: string; icon: React.ReactNode;
 }
 
 function Home({ user, role }: { user: any; role: any }) {
+  const [upcomingSession, setUpcomingSession] = React.useState<any>(null)
+
+  React.useEffect(() => {
+    if (role !== 'student' || !user) return
+
+    const fetchUpcoming = async () => {
+      const { data } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('student_id', user.id)
+        .eq('status', 'scheduled')
+        .gte('start_time', new Date().toISOString())
+        .order('start_time', { ascending: true })
+        .limit(1)
+
+      if (data && data.length > 0) {
+        const session = data[0]
+        const { data: mentorData } = await supabase.from('profiles').select('full_name').eq('id', session.mentor_id).single()
+        setUpcomingSession({ ...session, mentor: mentorData })
+      }
+    }
+
+    fetchUpcoming()
+  }, [user, role])
+
   if (role === 'admin') return <AdminDashboardPage />
   if (role === 'mentor') return <AdminSchedulerPage />
 
@@ -170,13 +195,29 @@ function Home({ user, role }: { user: any; role: any }) {
           <section className="card-premium h-64 flex flex-col justify-center items-center text-center space-y-4 bg-primary text-white border-none shadow-2xl shadow-primary/20 relative overflow-hidden group">
             <div className="relative z-10">
               <h2 className="text-2xl font-black tracking-tight">Your Next Session</h2>
-              <p className="text-blue-100 font-medium opacity-80 mb-6">You have no upcoming sessions today.</p>
-              <Link 
-                to="/scheduler"
-                className="bg-white text-primary px-8 py-3 rounded-xl font-black text-sm active:scale-95 transition-all shadow-xl inline-block"
-              >
-                Browse Mentors
-              </Link>
+              {upcomingSession ? (
+                <>
+                  <p className="text-blue-100 font-medium opacity-80 mb-2">
+                    {new Date(upcomingSession.start_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </p>
+                  <p className="text-white font-bold mb-6">
+                    With {upcomingSession.mentor?.full_name || 'Mentor'}
+                  </p>
+                  <button className="bg-white text-primary px-8 py-3 rounded-xl font-black text-sm active:scale-95 transition-all shadow-xl inline-block">
+                    Join Session
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-blue-100 font-medium opacity-80 mb-6">You have no upcoming sessions today.</p>
+                  <Link 
+                    to="/scheduler"
+                    className="bg-white text-primary px-8 py-3 rounded-xl font-black text-sm active:scale-95 transition-all shadow-xl inline-block"
+                  >
+                    Browse Mentors
+                  </Link>
+                </>
+              )}
             </div>
             <div className="absolute top-[-20%] right-[-10%] w-64 h-64 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-all duration-700" />
           </section>
