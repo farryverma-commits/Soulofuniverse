@@ -61,8 +61,27 @@ Stores booking requests and confirmed sessions between students and mentors.
 
 ---
 
-### 4. `sessions`
-(Used for VOD content and platform sessions - structure currently in development)
+### 4. `videos`
+Stores video content metadata for the VOD library.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier (default: `gen_random_uuid()`). |
+| `title` | `text` | Title of the video. |
+| `slug` | `text` (Unique) | URL-friendly identifier. |
+| `master_url` | `text` | URL to the master video file. |
+| `thumb_url` | `text` | URL to the video thumbnail. |
+| `status` | `text` | Processing status (default: `processing`). |
+| `metadata` | `jsonb` | Stores duration, resolution, and other metadata. |
+| `created_at` | `timestamptz` | Timestamp when created. |
+| `updated_at` | `timestamptz` | Timestamp when last updated. |
+
+**RLS Rules:**
+- `Allow authenticated users to read videos`: `SELECT` for `authenticated` users.
+- `Allow service role to manage videos`: `ALL` for `service_role`.
+
+**Indexes:**
+- `idx_videos_slug`: B-tree index on the `slug` column.
 
 ---
 
