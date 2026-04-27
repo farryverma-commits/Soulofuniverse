@@ -129,7 +129,7 @@ class VideoHandler(FileSystemEventHandler):
 
             cmd = [
                 'ffmpeg', '-y', '-i', input_path,
-
+                '-threads', '2',
                 '-filter_complex',
                 '[0:v]split=4[v1][v2][v3][v4];'
                 '[v1]scale=640:360[v1out];'
