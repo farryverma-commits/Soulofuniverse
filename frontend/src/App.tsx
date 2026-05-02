@@ -1,6 +1,6 @@
 import React from 'react'
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { Layout, Calendar, BookOpen, Video, User, Home as HomeIcon, LogOut, Loader2, Shield, ArrowUpRight } from 'lucide-react'
+import { Layout, Calendar, BookOpen, Video, User, Home as HomeIcon, LogOut, Shield, ArrowUpRight } from 'lucide-react'
 import { useAuth } from './hooks/useAuth'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
@@ -12,7 +12,26 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-light flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        <div className="flex flex-col items-center gap-8">
+          {/* Orbital Loader */}
+          <div className="relative w-20 h-20">
+            {/* Core glow */}
+            <div className="absolute inset-[30%] rounded-full bg-primary/40 animate-[breath_2s_ease-in-out_infinite]" />
+            <div className="absolute inset-[35%] rounded-full bg-primary" />
+            {/* Orbit ring 1 */}
+            <div className="absolute inset-0 rounded-full border-2 border-primary/20 animate-spin" style={{ animationDuration: '3s' }}>
+              <div className="absolute w-2 h-2 bg-primary rounded-full -top-1 left-1/2 -translate-x-1/2 shadow-[0_0_8px_rgba(33,150,243,0.6)]" />
+            </div>
+            {/* Orbit ring 2 */}
+            <div className="absolute inset-1 rounded-full border border-primary/10 animate-spin" style={{ animationDuration: '5s', animationDirection: 'reverse' }}>
+              <div className="absolute w-1.5 h-1.5 bg-primary/60 rounded-full -bottom-0.5 left-1/2 -translate-x-1/2" />
+            </div>
+          </div>
+          {/* Brand text */}
+          <p className="text-sm font-bold tracking-[0.2em] uppercase text-gray-400 animate-pulse">
+            Soul of Universe
+          </p>
+        </div>
       </div>
     )
   }
@@ -24,15 +43,15 @@ function App() {
       <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
 
       {/* Protected Meeting Route (Full Screen) */}
-      <Route 
-        path="/meeting/:sessionId" 
-        element={user ? <MeetingPage /> : <Navigate to="/login" />} 
+      <Route
+        path="/meeting/:sessionId"
+        element={user ? <MeetingPage /> : <Navigate to="/login" />}
       />
 
       {/* Protected App Routes */}
-      <Route 
-        path="/*" 
-        element={user ? <DashboardLayout user={user} role={role} /> : <Navigate to="/login" />} 
+      <Route
+        path="/*"
+        element={user ? <DashboardLayout user={user} role={role} /> : <Navigate to="/login" />}
       />
     </Routes>
   )
@@ -64,7 +83,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           </div>
           <span className="font-bold text-lg md:text-xl tracking-tight text-dark">Soul of Universe</span>
         </div>
-        
+
         <div className="hidden md:flex items-center gap-8">
           <NavLink to="/" icon={<HomeIcon className="w-4 h-4" />} label="Dashboard" />
           <NavLink to="/library" icon={<BookOpen className="w-4 h-4" />} label="Library" />
@@ -77,7 +96,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
         </div>
 
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={handleLogout}
             className="p-2 hover:bg-red-50 rounded-full transition-colors group"
             title="Log Out"
@@ -85,7 +104,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
             <LogOut className="w-5 h-5 text-gray-400 group-hover:text-red-500" />
           </button>
           <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
-             <User className="w-5 h-5 text-gray-500" />
+            <User className="w-5 h-5 text-gray-500" />
           </div>
         </div>
       </nav>
@@ -119,13 +138,12 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
 function NavLink({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   const location = useLocation()
   const isActive = location.pathname === to
-  
+
   return (
-    <Link 
-      to={to} 
-      className={`flex items-center gap-2 text-sm font-semibold transition-all ${
-        isActive ? 'text-primary' : 'text-gray-500 hover:text-primary'
-      }`}
+    <Link
+      to={to}
+      className={`flex items-center gap-2 text-sm font-semibold transition-all ${isActive ? 'text-primary' : 'text-gray-500 hover:text-primary'
+        }`}
     >
       {icon}
       {label}
@@ -140,8 +158,8 @@ function MobileNavLink({ to, icon, label }: { to: string; icon: React.ReactNode;
   return (
     <Link to={to} className="flex flex-col items-center gap-1">
       <div className={`p-1 rounded-lg transition-colors ${isActive ? 'text-primary bg-blue-50' : 'text-gray-400'}`}>
-        {React.isValidElement(icon) && React.cloneElement(icon as React.ReactElement<any>, { 
-          className: 'w-6 h-6' 
+        {React.isValidElement(icon) && React.cloneElement(icon as React.ReactElement<any>, {
+          className: 'w-6 h-6'
         })}
       </div>
       <span className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? 'text-primary' : 'text-gray-400'}`}>
@@ -207,12 +225,12 @@ function Home({ user, role }: { user: any; role: any }) {
           </h1>
           <p className="text-gray-500 font-medium text-lg">{user.email}</p>
         </div>
-        <div className="flex gap-4">
+        {/* <div className="flex gap-4">
           <div className="px-6 py-3 bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="text-xs font-black uppercase tracking-widest text-dark">System Online</span>
           </div>
-        </div>
+        </div> */}
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -235,7 +253,7 @@ function Home({ user, role }: { user: any; role: any }) {
               ) : (
                 <>
                   <p className="text-blue-100 font-medium opacity-80 mb-6">You have no upcoming sessions today.</p>
-                  <Link 
+                  <Link
                     to="/scheduler"
                     className="bg-white text-primary px-8 py-3 rounded-xl font-black text-sm active:scale-95 transition-all shadow-xl inline-block"
                   >
@@ -247,7 +265,7 @@ function Home({ user, role }: { user: any; role: any }) {
             <div className="absolute top-[-20%] right-[-10%] w-64 h-64 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-all duration-700" />
           </section>
 
-          <section className="space-y-6">
+          {/* <section className="space-y-6">
             <h2 className="text-2xl font-black text-dark tracking-tight">Continue Learning</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="group cursor-pointer">
@@ -267,43 +285,43 @@ function Home({ user, role }: { user: any; role: any }) {
                 <p className="text-xs text-gray-400 font-medium">Mentor Sharan • 1h 20m</p>
               </div>
             </div>
-          </section>
+          </section> */}
         </div>
 
         <aside className="space-y-8">
           <div className="card-premium space-y-6">
-             <h3 className="font-black text-dark tracking-tight">Group Sessions</h3>
-             <div className="space-y-4">
-               {groupSessions.length > 0 ? (
-                 groupSessions.map(session => (
-                   <div key={session.id} className="flex flex-col gap-3 p-4 bg-surface-light rounded-2xl border border-gray-100 hover:border-primary/20 transition-all group">
-                     <div className="flex justify-between items-start">
-                        <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${session.status === 'live' ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-50 text-primary'}`}>
-                          {session.status === 'live' ? 'Live Now' : 'Upcoming'}
-                        </div>
-                        <span className="text-[10px] text-gray-400 font-bold">
-                          {new Date(session.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                     </div>
-                     <div>
-                       <h4 className="text-sm font-black text-dark leading-tight mb-1 group-hover:text-primary transition-colors">{session.title}</h4>
-                       <p className="text-[10px] text-gray-500 font-medium">With {session.mentor?.full_name || 'Mentor'}</p>
-                     </div>
-                     <Link 
-                        to={`/meeting/${session.id}`}
-                        className="w-full py-2 bg-white border border-gray-200 rounded-xl text-center text-xs font-black text-dark hover:bg-primary hover:text-white hover:border-primary transition-all"
-                      >
-                        Join Room
-                      </Link>
-                   </div>
-                 ))
-               ) : (
-                 <p className="text-xs text-gray-400 font-medium text-center py-4">No sessions scheduled.</p>
-               )}
-             </div>
-             {role === 'mentor' && (
-               <button className="w-full py-3 text-xs font-black text-primary hover:underline">+ Schedule Masterclass</button>
-             )}
+            <h3 className="font-black text-dark tracking-tight">Group Sessions</h3>
+            <div className="space-y-4">
+              {groupSessions.length > 0 ? (
+                groupSessions.map(session => (
+                  <div key={session.id} className="flex flex-col gap-3 p-4 bg-surface-light rounded-2xl border border-gray-100 hover:border-primary/20 transition-all group">
+                    <div className="flex justify-between items-start">
+                      <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${session.status === 'live' ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-50 text-primary'}`}>
+                        {session.status === 'live' ? 'Live Now' : 'Upcoming'}
+                      </div>
+                      <span className="text-[10px] text-gray-400 font-bold">
+                        {new Date(session.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-dark leading-tight mb-1 group-hover:text-primary transition-colors">{session.title}</h4>
+                      <p className="text-[10px] text-gray-500 font-medium">With {session.mentor?.full_name || 'Mentor'}</p>
+                    </div>
+                    <Link
+                      to={`/meeting/${session.id}`}
+                      className="w-full py-2 bg-white border border-gray-200 rounded-xl text-center text-xs font-black text-dark hover:bg-primary hover:text-white hover:border-primary transition-all"
+                    >
+                      Join Room
+                    </Link>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-gray-400 font-medium text-center py-4">No sessions scheduled.</p>
+              )}
+            </div>
+            {role === 'mentor' && (
+              <button className="w-full py-3 text-xs font-black text-primary hover:underline">+ Schedule Masterclass</button>
+            )}
           </div>
 
           <div className="card-premium bg-dark text-white border-none space-y-4 shadow-xl">
@@ -314,7 +332,7 @@ function Home({ user, role }: { user: any; role: any }) {
             <div className="pt-2 flex justify-between items-center">
               <span className="text-[10px] font-black uppercase text-primary tracking-widest">Rumi</span>
               <button className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-all text-white">
-                 <ArrowUpRight className="w-4 h-4" />
+                <ArrowUpRight className="w-4 h-4" />
               </button>
             </div>
           </div>

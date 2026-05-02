@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -12,8 +13,6 @@
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 @layer base {
   body {
@@ -193,6 +192,11 @@
 }
 
 /* Animations */
+@keyframes breath {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.5); opacity: 0.8; }
+}
+
 @keyframes slideUp {
   from { 
     opacity: 0; 
