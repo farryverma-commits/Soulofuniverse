@@ -14,6 +14,7 @@ Stores user profile information, extending the base `auth.users` table.
 | `full_name` | `text` | User's display name. |
 | `avatar_url` | `text` | URL to the user's profile picture. |
 | `bio` | `text` | Biography (mainly for mentors). |
+| `dob` | `date` | Date of birth. |
 | `role` | `text` | User role: `student`, `mentor`, or `admin`. |
 | `created_at` | `timestamp` | Time when the profile was created. |
 
@@ -85,6 +86,79 @@ Stores video content metadata for the VOD library.
 
 ---
 
+### 5. `group_sessions`
+Stores the scheduled meetings created by mentors.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier for the session. |
+| `mentor_id` | `uuid` (FK) | References `profiles.id` (the host). |
+| `title` | `text` | Title of the meeting. |
+| `description` | `text` | Details about the meeting. |
+| `scheduled_start_time` | `timestamptz` | When the meeting is supposed to start. |
+| `scheduled_end_time` | `timestamptz` | When the meeting is supposed to end. |
+| `status` | `text` | `scheduled`, `live`, `completed`, `cancelled`. |
+| `require_approval` | `boolean` | If `true`, participants need manual approval to enter. |
+| `is_recorded` | `boolean` | If `true`, the meeting will be recorded via LiveKit Egress. |
+| `created_at` | `timestamptz` | Timestamp when created. |
+
+**RLS Rules:**
+- `Public view`: All users can `SELECT` scheduled and live sessions to show on dashboards.
+- `Mentor manage`: Mentors can `INSERT`, `UPDATE`, `DELETE` where `auth.uid() = mentor_id`.
+
+---
+
+### 6. `session_participants`
+Handles the "Waiting Room" and tracks who attended.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier. |
+| `session_id` | `uuid` (FK) | References `group_sessions.id`. |
+| `user_id` | `uuid` (FK) | References `profiles.id`. |
+| `status` | `text` | `waiting`, `approved`, `joined`, `denied`. |
+| `joined_at` | `timestamptz` | When the user was admitted/joined. |
+
+**RLS Rules:**
+- `User view/insert`: Users can `SELECT` and `INSERT` their own records (to join/request access).
+- `Mentor manage`: Mentors can `SELECT` and `UPDATE` records for their own sessions (to admit/deny).
+
+---
+
+### 7. `session_chats`
+Stores the persisted chat history for a session.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier. |
+| `session_id` | `uuid` (FK) | References `group_sessions.id`. |
+| `sender_id` | `uuid` (FK) | References `profiles.id`. |
+| `message` | `text` | The chat message content. |
+| `sent_at` | `timestamptz` | When the message was originally sent during the meeting. |
+
+**RLS Rules:**
+- `Public view`: Authenticated users can `SELECT` chats for sessions they attended.
+- `Insert`: Managed via Service Role in Edge Functions.
+
+---
+
+### 8. `meeting_logs`
+Maintains logs of meeting events (joins, leaves, raises hand, errors) for debugging and review.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier. |
+| `session_id` | `uuid` (FK) | References `group_sessions.id`. |
+| `event_type` | `text` | e.g., `participant_joined`, `chat_saved`, `recording_started`, `error`. |
+| `payload` | `jsonb` | Additional context and metadata about the event. |
+| `created_at` | `timestamptz` | Timestamp of the event. |
+
+**RLS Rules:**
+- `Mentor view`: Mentors can `SELECT` logs for their own sessions.
+- `Insert`: Managed via Service Role in Edge Functions and LiveKit Webhooks.
+
+---
+
 ## Database Functions & Triggers
 
 ### `handle_new_user()`
@@ -93,8 +167,14 @@ Automatically creates a corresponding entry in the `public.profiles` table whene
 
 ```sql
 begin
-  insert into public.profiles (id, email, full_name, role)
-  values (new.id, new.email, new.raw_user_meta_data->>'full_name', 'student');
+  insert into public.profiles (id, email, full_name, role, dob)
+  values (
+    new.id, 
+    new.email, 
+    new.raw_user_meta_data->>'full_name', 
+    COALESCE(new.raw_user_meta_data->>'role', 'student'),
+    (new.raw_user_meta_data->>'dob')::date
+  );
   return new;
 end;
 ```

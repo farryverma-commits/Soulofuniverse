@@ -19,13 +19,29 @@ export const AdminSchedulerPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [newSlot, setNewSlot] = useState({ day_of_week: 1, start_time: '09:00', end_time: '10:00' })
   const [saving, setSaving] = useState(false)
+  const [groupSessions, setGroupSessions] = useState<any[]>([])
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
+  const [newGroup, setNewGroup] = useState({ title: '', description: '', scheduled_start_time: '', scheduled_end_time: '', require_approval: false, is_recorded: false })
+  const [startingSessionId, setStartingSessionId] = useState<string | null>(null);
 
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
   useEffect(() => {
     fetchAvailability()
     fetchRequests()
+    fetchGroupSessions()
   }, [user])
+
+  const fetchGroupSessions = async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('group_sessions')
+      .select('*')
+      .eq('mentor_id', user.id)
+      .order('scheduled_start_time', { ascending: true })
+    
+    if (data) setGroupSessions(data)
+  }
 
   const fetchRequests = async () => {
     if (!user) return
@@ -126,6 +142,54 @@ export const AdminSchedulerPage: React.FC = () => {
     }
   }
 
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    setSaving(true)
+
+    const { error } = await supabase
+      .from('group_sessions')
+      .insert([
+        { 
+          mentor_id: user.id, 
+          title: newGroup.title,
+          description: newGroup.description,
+          scheduled_start_time: new Date(newGroup.scheduled_start_time).toISOString(),
+          scheduled_end_time: new Date(newGroup.scheduled_end_time).toISOString(),
+          require_approval: newGroup.require_approval,
+          is_recorded: newGroup.is_recorded,
+          status: 'scheduled'
+        }
+      ])
+
+    if (!error) {
+      setIsGroupModalOpen(false)
+      fetchGroupSessions()
+    }
+    setSaving(false)
+  }
+
+  const handleUpdateGroupStatus = async (id: string, action: 'start' | 'end') => {
+    if (action === 'start') setStartingSessionId(id);
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({ session_id: id, action }),
+    });
+    
+    if (response.ok) {
+      await fetchGroupSessions();
+    } else {
+      const err = await response.json();
+      alert(`Error updating session: ${err.error}`);
+    }
+    if (action === 'start') setStartingSessionId(null);
+  }
+
   return (
     <div className="flex flex-col lg:flex-row gap-8 relative">
       {/* Left Side: Weekly Availability Grid */}
@@ -135,13 +199,85 @@ export const AdminSchedulerPage: React.FC = () => {
             <h1 className="text-2xl font-bold text-dark tracking-tight">Weekly Availability</h1>
             <p className="text-sm text-gray-500 font-medium">Set your recurring time blocks for student bookings.</p>
           </div>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="btn-primary flex items-center gap-2 py-2.5 shadow-lg shadow-primary/20"
-          >
-            <Plus className="w-4 h-4" /> Add Time Block
-          </button>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => setIsGroupModalOpen(true)}
+              className="px-6 py-2.5 bg-dark text-white rounded-xl font-bold text-sm shadow-lg flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> New Masterclass
+            </button>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="btn-primary flex items-center gap-2 py-2.5 shadow-lg shadow-primary/20"
+            >
+              <Plus className="w-4 h-4" /> Add Time Block
+            </button>
+          </div>
         </header>
+
+        <div className="space-y-4">
+           <h3 className="text-lg font-black text-dark tracking-tight">Scheduled Masterclasses</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {groupSessions.length > 0 ? (
+                groupSessions.map(session => (
+                  <div key={session.id} className="card-premium flex flex-col gap-4 border-2 border-transparent hover:border-primary/10 transition-all">
+                    <div className="flex justify-between items-start">
+                      <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${session.status === 'live' ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-50 text-primary'}`}>
+                        {session.status}
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] text-gray-400 font-bold">
+                          {new Date(session.scheduled_start_time).toLocaleDateString()}
+                        </span>
+                        <span className="text-[10px] text-primary font-black">
+                          {new Date(session.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(session.scheduled_end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-black text-dark leading-tight mb-1">{session.title}</h4>
+                      <p className="text-xs text-gray-500 line-clamp-2">{session.description}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {session.status === 'scheduled' && (
+                        <button 
+                          onClick={() => handleUpdateGroupStatus(session.id, 'start')}
+                          disabled={startingSessionId === session.id}
+                          className="flex-1 py-2 bg-primary text-white text-xs font-black rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {startingSessionId === session.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Start Session'
+                          )}
+                        </button>
+                      )}
+                      {session.status === 'live' && (
+                        <>
+                          <button 
+                            onClick={() => window.open(`/meeting/${session.id}`, '_blank')}
+                            className="flex-1 py-2 bg-green-500 text-white text-xs font-black rounded-xl"
+                          >
+                            Enter Room
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateGroupStatus(session.id, 'end')}
+                            className="px-4 py-2 bg-gray-100 text-gray-600 text-xs font-black rounded-xl"
+                          >
+                            End
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full py-8 text-center bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                  <p className="text-sm text-gray-400 font-medium">No masterclasses scheduled yet.</p>
+                </div>
+              )}
+           </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {days.map((day, index) => (
@@ -251,6 +387,94 @@ export const AdminSchedulerPage: React.FC = () => {
                 className="btn-primary w-full py-4 flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Availability"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Group Session Modal */}
+      {isGroupModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="font-bold text-xl text-dark">Schedule Masterclass</h2>
+              <button onClick={() => setIsGroupModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateGroup} className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-dark uppercase tracking-widest ml-1">Title</label>
+                <input 
+                  required
+                  className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bold text-dark"
+                  value={newGroup.title}
+                  onChange={(e) => setNewGroup({ ...newGroup, title: e.target.value })}
+                  placeholder="The Quantum Soul"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-dark uppercase tracking-widest ml-1">Description</label>
+                <textarea 
+                  className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-medium text-dark text-sm h-24"
+                  value={newGroup.description}
+                  onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
+                  placeholder="Deep dive into quantum consciousness..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-dark uppercase tracking-widest ml-1">Start Time</label>
+                  <input 
+                    required
+                    type="datetime-local"
+                    className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bold text-dark text-sm"
+                    value={newGroup.scheduled_start_time}
+                    onChange={(e) => setNewGroup({ ...newGroup, scheduled_start_time: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-dark uppercase tracking-widest ml-1">End Time</label>
+                  <input 
+                    required
+                    type="datetime-local"
+                    className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-xl px-4 py-3 outline-none transition-all font-bold text-dark text-sm"
+                    value={newGroup.scheduled_end_time}
+                    onChange={(e) => setNewGroup({ ...newGroup, scheduled_end_time: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <label className="flex-1 flex items-center gap-2 cursor-pointer p-3 bg-surface-light rounded-xl border border-transparent hover:border-primary/10">
+                  <input 
+                    type="checkbox" 
+                    checked={newGroup.require_approval}
+                    onChange={(e) => setNewGroup({ ...newGroup, require_approval: e.target.checked })}
+                    className="w-4 h-4 rounded text-primary border-gray-300 focus:ring-primary"
+                  />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase">Wait Room</span>
+                </label>
+                <label className="flex-1 flex items-center gap-2 cursor-pointer p-3 bg-surface-light rounded-xl border border-transparent hover:border-primary/10">
+                  <input 
+                    type="checkbox" 
+                    checked={newGroup.is_recorded}
+                    onChange={(e) => setNewGroup({ ...newGroup, is_recorded: e.target.checked })}
+                    className="w-4 h-4 rounded text-primary border-gray-300 focus:ring-primary"
+                  />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase">Record</span>
+                </label>
+              </div>
+
+              <button 
+                disabled={saving}
+                className="btn-primary w-full py-4 mt-2 flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+              >
+                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Create Masterclass"}
               </button>
             </form>
           </div>

@@ -1,7 +1,7 @@
 {
-  "name": "tmp-vite",
+  "name": "soul-of-universe",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.20",
+    "@livekit/components-styles": "^1.2.0",
     "@reduxjs/toolkit": "^2.11.2",
     "@supabase/supabase-js": "^2.103.3",
+    "livekit-client": "^2.18.7",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

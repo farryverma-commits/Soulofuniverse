@@ -2,17 +2,24 @@
 
 @theme {
   --color-primary: #2196F3;
-  --color-surface: #FFFFFF;
-  --color-surface-light: #F7F9FB;
-  --color-dark: #191C1E;
+  --color-primary-dark: #1976D2;
+  --color-surface-light: #F8FAFC;
+  --color-surface-dark: #0F172A;
+  --color-text-main: #1E293B;
+  --color-text-muted: #64748B;
+  --color-dark: #0F172A;
   
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
 }
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 @layer base {
   body {
-    @apply bg-surface-light text-dark font-sans antialiased;
+    background-color: #F8FAFC;
+    color: #1E293B;
+    @apply font-sans antialiased;
     font-family: 'Inter', 'Manrope', sans-serif;
   }
 }
@@ -29,4 +36,183 @@
   .btn-primary {
     @apply bg-primary text-white px-6 py-2 rounded-xl font-medium transition-transform active:scale-95 disabled:opacity-50;
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          LIVEKIT CONFERENCING OVERRIDES                   */
+/* -------------------------------------------------------------------------- */
+
+/* Root Chat Container */
+.lk-chat {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  color: white !important;
+}
+
+/* Hide Redundant Controls entirely */
+.lk-chat-header button, 
+.lk-chat-toggle,
+.lk-chat-close-button {
+  display: none !important;
+}
+
+/* Header Polish - Forced Alignment */
+.lk-chat-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  padding: 1.25rem 1.5rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.15em !important;
+  color: rgba(255,255,255,0.5) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+  background: rgba(0,0,0,0.4) !important;
+}
+
+/* Messages List */
+.lk-chat-messages {
+  flex: 1 !important;
+  width: 100% !important;
+  padding: 1.25rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1.25rem !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* Individual Entry Container */
+.lk-chat-entry {
+  display: flex !important;
+  flex-direction: column !important;
+  max-width: 85% !important;
+  width: auto !important;
+  position: relative !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.lk-chat-entry[data-lk-message-origin="local"] {
+  align-self: flex-end !important;
+  align-items: flex-end !important;
+}
+
+.lk-chat-entry[data-lk-message-origin="remote"] {
+  align-self: flex-start !important;
+  align-items: flex-start !important;
+}
+
+/* Meta Data (Sender Name & Time) */
+.lk-chat-entry-meta {
+  font-size: 0.65rem !important;
+  font-weight: 800 !important;
+  color: rgba(255,255,255,0.4) !important;
+  margin-bottom: 0.35rem !important;
+  padding: 0 0.25rem !important;
+  text-transform: none !important;
+  white-space: nowrap !important;
+}
+
+/* Bubble Backgrounds */
+.lk-chat-entry-body {
+  display: block !important;
+  width: fit-content !important;
+  max-width: 100% !important;
+  padding: 0.75rem 1rem !important;
+  border-radius: 1.15rem !important;
+  font-size: 0.95rem !important;
+  line-height: 1.4 !important;
+  word-break: break-word !important;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+.lk-chat-entry[data-lk-message-origin="local"] .lk-chat-entry-body {
+  background: #0E71EB !important; /* Zoom Blue Solid */
+  color: #FFFFFF !important;
+  border-bottom-right-radius: 0.2rem !important;
+}
+
+.lk-chat-entry[data-lk-message-origin="remote"] .lk-chat-entry-body {
+  background: #2D2D2D !important; /* Dark Opaque */
+  color: #FFFFFF !important;
+  border-bottom-left-radius: 0.2rem !important;
+}
+
+/* Text Content */
+.lk-chat-entry-content {
+  color: #FFFFFF !important;
+}
+
+/* Form Container */
+.lk-chat-form {
+  padding: 1rem !important;
+  background: #0a0a0a !important;
+  border-top: 1px solid rgba(255,255,255,0.15) !important;
+  display: flex !important;
+  gap: 0.5rem !important;
+  align-items: center !important;
+}
+
+/* Input Field */
+.lk-chat-form-input {
+  flex: 1 !important;
+  background: #1e1e1e !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+  color: white !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem 1rem !important;
+  font-size: 0.9rem !important;
+}
+
+.lk-chat-form-input:focus {
+  outline: none !important;
+  border-color: #0E71EB !important;
+  background: #252525 !important;
+}
+
+/* Send Button */
+.lk-chat-form button {
+  background: #0E71EB !important;
+  color: white !important;
+  height: 2.75rem !important;
+  padding: 0 1.5rem !important;
+  border-radius: 0.75rem !important;
+  font-weight: 800 !important;
+  border: none !important;
+  cursor: pointer !important;
+}
+
+.lk-chat-form button:hover {
+  background: #1c82ff !important;
+}
+
+/* Animations */
+@keyframes slideUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Hide scrollbar for mobile navs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

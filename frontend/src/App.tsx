@@ -23,6 +23,12 @@ function App() {
       <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
       <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
 
+      {/* Protected Meeting Route (Full Screen) */}
+      <Route 
+        path="/meeting/:sessionId" 
+        element={user ? <MeetingPage /> : <Navigate to="/login" />} 
+      />
+
       {/* Protected App Routes */}
       <Route 
         path="/*" 
@@ -37,10 +43,16 @@ import { BookingPage } from './features/scheduler/BookingPage'
 import { VideoLibraryPage } from './features/library/VideoLibraryPage'
 import { AdminDashboardPage } from './features/admin/AdminDashboardPage'
 import { UserManagement } from './features/admin/UserManagement'
+import { MeetingPage } from './features/conferencing/MeetingPage'
 
 function DashboardLayout({ user, role }: { user: any; role: any }) {
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      console.error('Logout failed:', error.message)
+    }
+    // Force redirect to login as a fallback
+    window.location.href = '/login'
   }
 
   return (
@@ -56,9 +68,6 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
         <div className="hidden md:flex items-center gap-8">
           <NavLink to="/" icon={<HomeIcon className="w-4 h-4" />} label="Dashboard" />
           <NavLink to="/library" icon={<BookOpen className="w-4 h-4" />} label="Library" />
-          {role === 'mentor' && (
-            <NavLink to="/mentor/scheduler" icon={<Calendar className="w-4 h-4" />} label="Master Scheduler" />
-          )}
           {role === 'student' && (
             <NavLink to="/scheduler" icon={<Calendar className="w-4 h-4" />} label="Book Session" />
           )}
@@ -86,7 +95,6 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           <Route path="/" element={<Home user={user} role={role} />} />
           <Route path="/library" element={<VideoLibraryPage />} />
           <Route path="/scheduler" element={role === 'student' ? <BookingPage /> : <Navigate to="/" />} />
-          <Route path="/mentor/scheduler" element={role === 'mentor' ? <AdminSchedulerPage /> : <Navigate to="/" />} />
           <Route path="/admin" element={role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
         </Routes>
       </main>
@@ -95,7 +103,6 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
         <MobileNavLink to="/" icon={<HomeIcon />} label="Home" />
         <MobileNavLink to="/library" icon={<BookOpen />} label="Library" />
-        {role === 'mentor' && <MobileNavLink to="/mentor/scheduler" icon={<Calendar />} label="Schedule" />}
         {role === 'student' && <MobileNavLink to="/scheduler" icon={<Calendar />} label="Book" />}
         {role === 'admin' && <MobileNavLink to="/admin" icon={<Layout />} label="Admin" />}
         <button onClick={handleLogout} className="flex flex-col items-center gap-1">
@@ -146,28 +153,46 @@ function MobileNavLink({ to, icon, label }: { to: string; icon: React.ReactNode;
 
 function Home({ user, role }: { user: any; role: any }) {
   const [upcomingSession, setUpcomingSession] = React.useState<any>(null)
+  const [groupSessions, setGroupSessions] = React.useState<any[]>([])
 
   React.useEffect(() => {
-    if (role !== 'student' || !user) return
+    if (!user) return
 
-    const fetchUpcoming = async () => {
-      const { data } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('student_id', user.id)
-        .eq('status', 'scheduled')
-        .gte('start_time', new Date().toISOString())
-        .order('start_time', { ascending: true })
-        .limit(1)
+    const fetchSessions = async () => {
+      // 1. Fetch individual appointments if student
+      if (role === 'student') {
+        const { data: appointments } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('student_id', user.id)
+          .eq('status', 'scheduled')
+          .gte('start_time', new Date().toISOString())
+          .order('start_time', { ascending: true })
+          .limit(1)
 
-      if (data && data.length > 0) {
-        const session = data[0]
-        const { data: mentorData } = await supabase.from('profiles').select('full_name').eq('id', session.mentor_id).single()
-        setUpcomingSession({ ...session, mentor: mentorData })
+        if (appointments && appointments.length > 0) {
+          const session = appointments[0]
+          const { data: mentorData } = await supabase.from('profiles').select('full_name').eq('id', session.mentor_id).single()
+          setUpcomingSession({ ...session, mentor: mentorData })
+        }
       }
+
+      // 2. Fetch upcoming group sessions
+      const { data: groups } = await supabase
+        .from('group_sessions')
+        .select(`
+          *,
+          mentor:profiles!group_sessions_mentor_id_fkey(full_name)
+        `)
+        .in('status', ['scheduled', 'live'])
+        .gte('scheduled_start_time', new Date(Date.now() - 3600000).toISOString()) // Include currently live ones
+        .order('scheduled_start_time', { ascending: true })
+        .limit(5)
+
+      setGroupSessions(groups || [])
     }
 
-    fetchUpcoming()
+    fetchSessions()
   }, [user, role])
 
   if (role === 'admin') return <AdminDashboardPage />
@@ -247,21 +272,38 @@ function Home({ user, role }: { user: any; role: any }) {
 
         <aside className="space-y-8">
           <div className="card-premium space-y-6">
-             <h3 className="font-black text-dark tracking-tight">Upcoming Events</h3>
+             <h3 className="font-black text-dark tracking-tight">Group Sessions</h3>
              <div className="space-y-4">
-               {[1, 2].map(i => (
-                 <div key={i} className="flex gap-4 p-3 bg-surface-light rounded-2xl border border-transparent hover:border-primary/10 transition-all">
-                   <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-xs text-primary shadow-sm border border-gray-100">
-                     {i === 1 ? '19' : '22'}
+               {groupSessions.length > 0 ? (
+                 groupSessions.map(session => (
+                   <div key={session.id} className="flex flex-col gap-3 p-4 bg-surface-light rounded-2xl border border-gray-100 hover:border-primary/20 transition-all group">
+                     <div className="flex justify-between items-start">
+                        <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${session.status === 'live' ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-50 text-primary'}`}>
+                          {session.status === 'live' ? 'Live Now' : 'Upcoming'}
+                        </div>
+                        <span className="text-[10px] text-gray-400 font-bold">
+                          {new Date(session.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                     </div>
+                     <div>
+                       <h4 className="text-sm font-black text-dark leading-tight mb-1 group-hover:text-primary transition-colors">{session.title}</h4>
+                       <p className="text-[10px] text-gray-500 font-medium">With {session.mentor?.full_name || 'Mentor'}</p>
+                     </div>
+                     <Link 
+                        to={`/meeting/${session.id}`}
+                        className="w-full py-2 bg-white border border-gray-200 rounded-xl text-center text-xs font-black text-dark hover:bg-primary hover:text-white hover:border-primary transition-all"
+                      >
+                        Join Room
+                      </Link>
                    </div>
-                   <div>
-                     <h4 className="text-xs font-black text-dark leading-none mb-1">Soul Workshop</h4>
-                     <span className="text-[10px] text-gray-400 font-bold">4:00 PM • Live Session</span>
-                   </div>
-                 </div>
-               ))}
+                 ))
+               ) : (
+                 <p className="text-xs text-gray-400 font-medium text-center py-4">No sessions scheduled.</p>
+               )}
              </div>
-             <button className="w-full py-3 text-xs font-black text-primary hover:underline">View Calendar</button>
+             {role === 'mentor' && (
+               <button className="w-full py-3 text-xs font-black text-primary hover:underline">+ Schedule Masterclass</button>
+             )}
           </div>
 
           <div className="card-premium bg-dark text-white border-none space-y-4 shadow-xl">

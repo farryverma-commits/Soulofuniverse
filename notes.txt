@@ -1,0 +1,23 @@
+supabase network Temporary failure in name resolution issue can only be resolved by using docker compose network :
+
+version: "3.9"
+
+networks:
+  app-network:
+
+services:
+  worker:
+    build: ./video-engine
+    container_name: transcoder
+    networks:
+      - app-network
+    volumes:
+      - /mnt/videos/input:/videos/input
+      - /mnt/videos/hls:/videos/hls
+      - /mnt/videos/logs:/videos/logs
+      - /mnt/videos/errors:/videos/errors
+    environment:
+      - SUPABASE_URL=http://supabase-kong:8000
+      - SUPABASE_KEY=your_key
+      - BASE_URL=https://media.yourdomain.com
+    restart: always
