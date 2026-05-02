@@ -41,12 +41,12 @@ export const LoginPage: React.FC = () => {
   }
 
   return (
-    <AuthLayout 
-      title="Welcome Back" 
+    <AuthLayout
+      title="Welcome Back"
       subtitle="Continue your journey into the universe."
     >
       <div className="space-y-6">
-        <button 
+        {/* <button 
           onClick={handleGoogleLogin}
           className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-100 py-3.5 rounded-2xl font-bold text-dark hover:bg-gray-50 transition-all active:scale-[0.98] shadow-sm"
         >
@@ -57,21 +57,21 @@ export const LoginPage: React.FC = () => {
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
           </svg>
           Continue with Google
-        </button>
+        </button> */}
 
-        <div className="relative flex items-center gap-4 text-gray-400">
+        {/* <div className="relative flex items-center gap-4 text-gray-400">
           <div className="flex-1 h-px bg-gray-100" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Or with email</span>
           <div className="flex-1 h-px bg-gray-100" />
-        </div>
+        </div> */}
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="space-y-2">
             <label className="text-xs font-bold text-dark uppercase tracking-widest ml-1">Email Address</label>
             <div className="relative group">
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-primary transition-colors" />
-              <input 
-                type="email" 
+              <input
+                type="email"
                 required
                 className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-2xl px-12 py-4 outline-none transition-all font-medium text-dark placeholder:text-gray-400"
                 placeholder="name@example.com"
@@ -88,8 +88,8 @@ export const LoginPage: React.FC = () => {
             </div>
             <div className="relative group">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-primary transition-colors" />
-              <input 
-                type="password" 
+              <input
+                type="password"
                 required
                 className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-2xl px-12 py-4 outline-none transition-all font-medium text-dark placeholder:text-gray-400"
                 placeholder="••••••••"
@@ -105,7 +105,7 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
-          <button 
+          <button
             disabled={loading}
             className="btn-primary w-full py-4 flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-[0.98]"
           >
