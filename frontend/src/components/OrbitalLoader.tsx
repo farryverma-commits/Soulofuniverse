@@ -16,8 +16,8 @@ export function OrbitalLoader({ variant = 'page', label }: OrbitalLoaderProps) {
   if (variant === 'button') {
     return (
       <span className="inline-block relative w-5 h-5">
-        <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-spin" style={{ animationDuration: '0.8s' }}>
-          <span className="absolute w-1 h-1 bg-primary rounded-full -top-0.5 left-1/2 -translate-x-1/2" />
+        <span className="absolute inset-0 rounded-full border-2 border-current/20 animate-spin" style={{ animationDuration: '0.8s' }}>
+          <span className="absolute w-1 h-1 bg-current rounded-full -top-0.5 left-1/2 -translate-x-1/2 shadow-[0_0_4px_currentColor]" />
         </span>
       </span>
     )

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Calendar as CalendarIcon, Clock, User, ArrowRight, CheckCircle2, ChevronRight, Loader2, Sparkles } from 'lucide-react'
+import { Calendar as CalendarIcon, Clock, User, ArrowRight, CheckCircle2, ChevronRight, Sparkles } from 'lucide-react'
+import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { supabase } from '../../services/supabaseClient'
 import { useSelector } from 'react-redux'
 import { RootState } from '../../store'
@@ -123,7 +124,7 @@ export const BookingPage: React.FC = () => {
   if (loading && !selectedMentor) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        <OrbitalLoader />
       </div>
     )
   }

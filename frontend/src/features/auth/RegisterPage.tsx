@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AuthLayout } from '../../layouts/AuthLayout'
 import { supabase } from '../../services/supabaseClient'
-import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react'
+import { Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react'
+import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { signInWithGoogle } from './authService'
 
 export const RegisterPage: React.FC = () => {
@@ -12,6 +13,7 @@ export const RegisterPage: React.FC = () => {
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<'student' | 'mentor'>('student')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
@@ -148,13 +150,20 @@ export const RegisterPage: React.FC = () => {
             <div className="relative group">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-primary transition-colors" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 required
                 className="w-full bg-surface-light border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-2xl px-12 py-4 outline-none transition-all font-medium text-dark placeholder:text-gray-400"
                 placeholder="Minimum 6 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-primary transition-colors"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
           </div>
 
@@ -168,7 +177,7 @@ export const RegisterPage: React.FC = () => {
             disabled={loading}
             className="btn-primary w-full py-4 flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-[0.98]"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            {loading ? <OrbitalLoader variant="button" /> : (
               <>
                 Get Started <ArrowRight className="w-5 h-5" />
               </>

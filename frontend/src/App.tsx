@@ -5,35 +5,13 @@ import { useAuth } from './hooks/useAuth'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { supabase } from './services/supabaseClient'
+import { OrbitalLoader } from './components/OrbitalLoader'
 
 function App() {
   const { user, loading, role } = useAuth()
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-surface-light flex items-center justify-center">
-        <div className="flex flex-col items-center gap-8">
-          {/* Orbital Loader */}
-          <div className="relative w-20 h-20">
-            {/* Core glow */}
-            <div className="absolute inset-[30%] rounded-full bg-primary/40 animate-[breath_2s_ease-in-out_infinite]" />
-            <div className="absolute inset-[35%] rounded-full bg-primary" />
-            {/* Orbit ring 1 */}
-            <div className="absolute inset-0 rounded-full border-2 border-primary/20 animate-spin" style={{ animationDuration: '3s' }}>
-              <div className="absolute w-2 h-2 bg-primary rounded-full -top-1 left-1/2 -translate-x-1/2 shadow-[0_0_8px_rgba(33,150,243,0.6)]" />
-            </div>
-            {/* Orbit ring 2 */}
-            <div className="absolute inset-1 rounded-full border border-primary/10 animate-spin" style={{ animationDuration: '5s', animationDirection: 'reverse' }}>
-              <div className="absolute w-1.5 h-1.5 bg-primary/60 rounded-full -bottom-0.5 left-1/2 -translate-x-1/2" />
-            </div>
-          </div>
-          {/* Brand text */}
-          <p className="text-sm font-bold tracking-[0.2em] uppercase text-gray-400 animate-pulse">
-            Soul of Universe
-          </p>
-        </div>
-      </div>
-    )
+    return <OrbitalLoader variant="page" label="Soul of Universe" />
   }
 
   return (

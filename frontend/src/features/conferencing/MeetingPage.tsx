@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
 import { MeetingView } from '../../components/conferencing/MeetingView';
-import { Loader2, ShieldAlert, Lock } from 'lucide-react';
+import { ShieldAlert, Lock } from 'lucide-react';
+import { OrbitalLoader } from '../../components/OrbitalLoader';
 
 export const MeetingPage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -117,12 +118,7 @@ export const MeetingPage: React.FC = () => {
   }, [sessionId, navigate]);
 
   if (status === 'loading') {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light">
-        <Loader2 className="w-12 h-12 text-primary animate-spin mb-6" />
-        <h2 className="text-2xl font-black text-dark tracking-tight">Preparing your session...</h2>
-      </div>
-    );
+    return <OrbitalLoader variant="page" label="Connecting to Session..." />;
   }
 
   if (status === 'not_started') {
@@ -163,10 +159,9 @@ export const MeetingPage: React.FC = () => {
                   setIsStarting(false);
                 }
               }}
-              disabled={isStarting}
               className="px-8 py-3 bg-primary text-white rounded-xl font-black text-sm shadow-xl shadow-primary/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Start Session Now'}
+              {isStarting ? <OrbitalLoader variant="button" /> : 'Start Session Now'}
             </button>
           )}
           <button 
@@ -184,7 +179,7 @@ export const MeetingPage: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
         <div className="w-20 h-20 bg-yellow-50 rounded-3xl flex items-center justify-center mb-6">
-          <Loader2 className="w-10 h-10 text-yellow-600 animate-spin" />
+          <OrbitalLoader variant="inline" label="Waiting for host..." />
         </div>
         <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Waiting for Approval</h2>
         <p className="text-gray-500 max-w-sm font-medium">

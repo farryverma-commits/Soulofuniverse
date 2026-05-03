@@ -19,7 +19,7 @@ import { Track } from 'livekit-client';
 import '@livekit/components-styles';
 import { supabase } from '../../services/supabaseClient';
 import { 
-  Loader2, 
+  Shield,
   LayoutGrid, 
   User, 
   Settings, 
@@ -36,6 +36,7 @@ import {
   Maximize,
   Minimize
 } from 'lucide-react';
+import { OrbitalLoader } from '../OrbitalLoader';
 import { ConferencingSidebar } from './ConferencingSidebar';
 
 interface MeetingViewProps {
@@ -50,8 +51,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({ token, serverUrl, sess
   if (!token || !serverUrl) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 text-primary animate-spin mb-4" />
-        <p className="text-gray-500 font-medium">Connecting to meeting...</p>
+        <OrbitalLoader variant="inline" label="Establishing Connection..." />
       </div>
     );
   }
@@ -152,7 +152,7 @@ function MyVideoConference({ sessionId, isMentor }: { sessionId: string; isMento
           <div className="flex-1 overflow-hidden p-4 md:p-6 mb-24 md:mb-28">
             {tracks.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <Loader2 className="w-10 h-10 animate-spin mb-6 text-primary" />
+                <OrbitalLoader variant="inline" label="Closing session..." />
                 <p className="font-bold text-lg tracking-tight">Preparing your session...</p>
               </div>
             ) : layout === 'grid' ? (

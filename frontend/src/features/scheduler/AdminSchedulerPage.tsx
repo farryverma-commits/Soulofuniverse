@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Calendar as CalendarIcon, Clock, Plus, Bell, MoreVertical, Trash2, CheckCircle2, X, Loader2 } from 'lucide-react'
+import { Calendar as CalendarIcon, Clock, Plus, Bell, MoreVertical, Trash2, CheckCircle2, X } from 'lucide-react'
+import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { supabase } from '../../services/supabaseClient'
 import { useSelector } from 'react-redux'
 import { RootState } from '../../store'
@@ -246,7 +247,7 @@ export const AdminSchedulerPage: React.FC = () => {
                           className="flex-1 py-2 bg-primary text-white text-xs font-black rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {startingSessionId === session.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <OrbitalLoader variant="button" />
                           ) : (
                             'Start Session'
                           )}
@@ -386,7 +387,7 @@ export const AdminSchedulerPage: React.FC = () => {
                 disabled={saving}
                 className="btn-primary w-full py-4 flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
               >
-                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Availability"}
+                {saving ? <OrbitalLoader variant="button" /> : "Save Availability"}
               </button>
             </form>
           </div>
@@ -474,7 +475,7 @@ export const AdminSchedulerPage: React.FC = () => {
                 disabled={saving}
                 className="btn-primary w-full py-4 mt-2 flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
               >
-                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Create Masterclass"}
+                {saving ? <OrbitalLoader variant="button" /> : "Create Masterclass"}
               </button>
             </form>
           </div>
@@ -540,13 +541,13 @@ function RequestItem({ student, session, time, status = 'new', isUpdating, onApp
           onClick={(e) => { e.stopPropagation(); onApprove(); }} 
           className="flex-1 bg-primary text-white text-[10px] font-black py-2 rounded-xl active:scale-95 transition-all shadow-md shadow-primary/10 flex items-center justify-center gap-1"
         >
-          {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+          {isUpdating ? <OrbitalLoader variant="button" /> : "Approve"}
         </button>
         <button 
           onClick={(e) => { e.stopPropagation(); onDecline(); }} 
           className="flex-1 bg-white text-gray-400 border border-gray-100 text-[10px] font-black py-2 rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1"
         >
-          {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : "Decline"}
+          {isUpdating ? <OrbitalLoader variant="button" /> : "Decline"}
         </button>
       </div>
     </div>

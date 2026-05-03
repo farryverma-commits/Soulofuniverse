@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Play, X, PlayCircle, BookOpen, Clock, Info } from 'lucide-react'
 import { supabase } from '../../services/supabaseClient'
 import { VideoPlayer } from '../../components/VideoPlayer'
+import { OrbitalLoader } from '../../components/OrbitalLoader'
 
 interface Video {
   id: string
@@ -57,7 +58,7 @@ export const VideoLibraryPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <OrbitalLoader variant="inline" label="Loading video library..." />
       </div>
     )
   }
@@ -159,15 +160,15 @@ export const VideoLibraryPage: React.FC = () => {
 
       {/* Video Player Modal */}
       {selectedVideo && (
-        <div className="fixed inset-0 bg-dark/95 backdrop-blur-xl z-[100] flex flex-col items-center justify-center p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 bg-dark/95 backdrop-blur-xl z-[100] flex flex-col items-center justify-start md:justify-center p-2 md:p-8 overflow-y-auto animate-in fade-in duration-300">
           <button
             onClick={() => setSelectedVideo(null)}
-            className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors z-50"
+            className="fixed top-4 right-4 md:top-8 md:right-8 text-white/50 hover:text-white transition-colors z-[110] bg-dark/50 backdrop-blur-md rounded-full p-2"
           >
-            <X className="w-10 h-10" />
+            <X className="w-8 h-8 md:w-10 md:h-10" />
           </button>
 
-          <div className="w-full max-w-5xl aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 relative">
+          <div className="w-full max-w-5xl aspect-video bg-black rounded-2xl md:rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 relative mt-16 md:mt-0 flex-shrink-0">
             {selectedVideo.master_url ? (
               <VideoPlayer
                 options={{
@@ -208,9 +209,9 @@ export const VideoLibraryPage: React.FC = () => {
             )}
           </div>
 
-          <div className="max-w-5xl w-full mt-12">
-            <div className="space-y-4">
-              <h2 className="text-4xl font-black text-white tracking-tight">{selectedVideo.title}</h2>
+          <div className="max-w-5xl w-full mt-8 md:mt-12 mb-12">
+            <div className="space-y-4 px-2 md:px-0">
+              <h2 className="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">{selectedVideo.title}</h2>
               <div className="flex items-center gap-4 text-white/40 font-bold text-sm">
                 <span>{selectedVideo.mentor}</span>
                 <span className="w-1 h-1 bg-white/20 rounded-full" />
