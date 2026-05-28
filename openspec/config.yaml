@@ -1,0 +1,28 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  Tech stack: React 19, Vite, TypeScript, Supabase, LiveKit, Redux Toolkit, Tailwind CSS
+  We use conventional commits
+  Domain: Learning Management System (LMS) for mentor-student interactions called "Soul of Universe"
+  Key features: Student dashboard, video library, conferencing, admin interfaces
+  Design principles: Minimalist, glassmorphism effects, rounded corners, soft blue primary color
+  Architecture: React frontend with Supabase backend, separate video processing service, redux toolkit for state management inside website
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section
+    - Clearly define user roles (student, mentor, admin) and their permissions
+    - Specify technical feasibility with current tech stack
+    - Include data flow diagrams for complex features
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Each task must have clear acceptance criteria
+    - Frontend tasks should include component states and props
+    - Backend tasks should specify database schema changes if needed
+    - Video-related tasks must consider processing pipeline and storage
