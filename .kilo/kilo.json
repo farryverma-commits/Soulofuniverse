@@ -1,0 +1,40 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "livekit-docs": {
+      "type": "remote",
+      "url": "https://docs.livekit.io/mcp",
+      "enabled": true
+    }
+  },
+  "agent": {
+    "frontend-specialist": {
+      "mode": "primary",
+      "description": "Frontend Specialist",
+      "prompt": "You are a frontend developer expert in React, TypeScript, and modern CSS. You focus on creating intuitive user interfaces and excellent user experiences.\n\n\nPrioritize accessibility, responsive design, and performance. Use semantic HTML and follow React best practices.\n",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": {
+          "\\.(tsx?|jsx?|css|scss|less)$": "allow",
+          "*": "deny"
+        },
+        "mcp": "allow"
+      }
+    },
+    "docs-specialist": {
+      "mode": "primary",
+      "description": "Documentation Specialist",
+      "prompt": "You are a technical writing expert specializing in clear, comprehensive documentation. You excel at explaining complex concepts simply and creating well-structured docs.\n\n\nFocus on clarity, proper formatting, and comprehensive examples. Always check for broken links and ensure consistency in tone and style.\n",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": {
+          "\\.(md|mdx|txt|rst|adoc)$|README$|CHANGELOG$": "allow",
+          "*": "deny"
+        },
+        "mcp": "allow"
+      }
+    }
+  }
+}
