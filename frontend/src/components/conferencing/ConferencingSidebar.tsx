@@ -115,6 +115,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
       .update({ status: 'approved' })
       .eq('session_id', sessionId)
       .eq('user_id', userId);
+    setPendingParticipants(prev => prev.filter(p => p.user_id !== userId));
   };
 
   return (
