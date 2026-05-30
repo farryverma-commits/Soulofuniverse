@@ -1,19 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   useParticipants,
   useLocalParticipant,
-  Chat,
-  useChat,
+  ParticipantTile,
+  TrackReferenceOrPlaceholder,
+  useTracks,
 } from '@livekit/components-react';
+import { Track } from 'livekit-client';
 import { supabase } from '../../services/supabaseClient';
-import { Hand, UserCheck, Users, MessageSquare } from 'lucide-react';
+import { Hand, UserCheck, Users, MessageSquare, Mic, MicOff } from 'lucide-react';
+import { PersistentChat } from './PersistentChat';
 
 interface SidebarProps {
   sessionId: string;
   isMentor: boolean;
   activeTab: 'chat' | 'participants' | 'approval';
   onTabChange: (tab: 'chat' | 'participants' | 'approval') => void;
+  onMuteAll?: () => void;
+  chatMessages: any[];
+  sendChat: (msg: string) => Promise<any>;
   onClose?: () => void;
+  isSending?: boolean;
 }
 
 export const ConferencingSidebar: React.FC<SidebarProps> = ({ 
@@ -21,60 +28,52 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
   isMentor,
   activeTab,
   onTabChange,
-  onClose
+  onMuteAll,
+  chatMessages,
+  sendChat,
+  onClose,
+  isSending
 }) => {
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
-  const { chatMessages } = useChat();
   const [pendingParticipants, setPendingParticipants] = useState<any[]>([]);
 
-  // 0. Chat Persistence (Mentor only)
-  useEffect(() => {
-    return () => {
-      if (isMentor && chatMessages.length > 0) {
-        const saveChat = async () => {
-          const msgs = chatMessages.map(m => ({
-            sender_id: m.from?.identity,
-            text: m.message,
-            timestamp: m.timestamp
-          }));
+  // Fetch camera tracks to provide explicit trackRef to mini-tiles
+  const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
 
-          await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-save-chat`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-            },
-            body: JSON.stringify({ session_id: sessionId, messages: msgs }),
-          });
-        };
-        saveChat();
-      }
-    };
-  }, [isMentor, sessionId, chatMessages]);
+  const localMetadata = useMemo(() => {
+    try {
+      return JSON.parse(localParticipant?.metadata || '{}');
+    } catch {
+      return {};
+    }
+  }, [localParticipant?.metadata]);
 
   // 1. Hand Raised Logic
   const raisedHandParticipants = participants
     .filter(p => {
       try {
-        const metadata = JSON.parse(p.metadata || '{}');
-        return metadata.handRaised;
+        return JSON.parse(p.metadata || '{}').handRaised;
       } catch {
         return false;
       }
     })
     .sort((a, b) => {
-      const metaA = JSON.parse(a.metadata || '{}');
-      const metaB = JSON.parse(b.metadata || '{}');
-      return (metaA.raisedAt || 0) - (metaB.raisedAt || 0);
+      try {
+        const metaA = JSON.parse(a.metadata || '{}');
+        const metaB = JSON.parse(b.metadata || '{}');
+        return (metaA.raisedAt || 0) - (metaB.raisedAt || 0);
+      } catch {
+        return 0;
+      }
     });
 
   const toggleHand = async () => {
+    if (!localParticipant) return;
     try {
-      const metadata = JSON.parse(localParticipant.metadata || '{}');
-      const isRaised = metadata.handRaised === true;
+      const isRaised = localMetadata.handRaised === true;
       const newMetadata = {
-        ...metadata,
+        ...localMetadata,
         handRaised: !isRaised,
         raisedAt: !isRaised ? Date.now() : null
       };
@@ -134,7 +133,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
         )}
         <button 
           onClick={onClose}
-          className="md:hidden flex items-center justify-center w-12 text-gray-400 hover:text-white transition-colors"
+          className="md:hidden flex items-center justify-center w-12 shrink-0 text-gray-400 hover:text-white transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
@@ -142,8 +141,13 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
 
       <div className="flex-1 flex flex-col min-h-0">
         {activeTab === 'chat' && (
-          <div className="h-full flex flex-col overflow-x-hidden">
-            <Chat className="flex-1" />
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <PersistentChat 
+              messages={chatMessages} 
+              onSendMessage={sendChat} 
+              isSending={isSending}
+              localParticipantIdentity={localParticipant?.identity}
+            />
           </div>
         )}
         
@@ -152,45 +156,140 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
             <button 
               onClick={toggleHand}
               className={`w-full py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all ${
-                JSON.parse(localParticipant.metadata || '{}').handRaised 
+                localMetadata.handRaised 
                 ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-500/20' 
                 : 'bg-white/5 text-white hover:bg-white/10'
               }`}
             >
               <Hand className="w-4 h-4" />
-              {JSON.parse(localParticipant.metadata || '{}').handRaised ? 'Lower Hand' : 'Raise Hand'}
+              {localMetadata.handRaised ? 'Lower Hand' : 'Raise Hand'}
             </button>
 
             {raisedHandParticipants.length > 0 && (
               <div className="space-y-3">
                 <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Hand Raised Queue</h4>
                 {raisedHandParticipants.map((p, i) => (
-                  <div key={p.identity} className="flex items-center justify-between p-3 bg-yellow-500/10 rounded-xl border border-yellow-500/40 shadow-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center text-[10px] font-black text-white">
+                  <div key={p.identity || i} className="flex items-center justify-between p-3 bg-yellow-500/10 rounded-xl border border-yellow-500/40 shadow-lg group/hand">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center text-[10px] font-black text-white shrink-0">
                         {i + 1}
                       </div>
-                      <span className="text-sm text-white font-black">{p.name || p.identity}</span>
+                      <span className="text-sm text-white font-black leading-tight truncate">
+                        {p.name || p.identity || 'Anonymous'}
+                      </span>
                     </div>
-                    <Hand className="w-4 h-4 text-yellow-400 fill-current" />
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                       {isMentor && (
+                          <button 
+                            onClick={async () => {
+                              const encoder = new TextEncoder();
+                              const data = encoder.encode(JSON.stringify({ action: 'ALLOW_SPEAK', target: p.identity }));
+                              await localParticipant?.publishData(data, { reliable: true });
+                            }}
+                            className="whitespace-nowrap px-3 py-1.5 bg-green-500 text-white text-[9px] font-black rounded-lg shadow-lg shadow-green-500/20 hover:scale-105 transition-all"
+                          >
+                            Allow Speak
+                          </button>
+                       )}
+                       <Hand className="w-4 h-4 text-yellow-400 fill-current shrink-0" />
+                    </div>
                   </div>
                 ))}
               </div>
             )}
 
             <div className="space-y-3">
-              <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2">All Participants ({participants.length})</h4>
+              <div className="flex items-center justify-between px-2">
+                <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">All Participants ({participants.length})</h4>
+                {isMentor && onMuteAll && (
+                   <button 
+                    onClick={onMuteAll}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-all"
+                   >
+                     <MicOff className="w-3 h-3" />
+                     <span className="text-[9px] font-black uppercase">Mute All</span>
+                   </button>
+                )}
+              </div>
               <div className="space-y-1">
-                {participants.map(p => (
-                  <div key={p.identity} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                    <div className="relative">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <div className="absolute inset-0 bg-green-500 rounded-full animate-ping opacity-20" />
+                {participants.map((p, i) => {
+                  const pMetadata = (() => {
+                    try { return JSON.parse(p.metadata || '{}'); } catch { return {}; }
+                  })();
+                  const isPublishingVideo = p.isCameraEnabled;
+                  
+                  return (
+                  <div key={p.identity || i} className="flex flex-col gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className={`w-2 h-2 rounded-full ${pMetadata.canSpeak ? 'bg-green-500' : 'bg-gray-500'}`} />
+                        {pMetadata.canSpeak && <div className="absolute inset-0 bg-green-500 rounded-full animate-ping opacity-20" />}
+                      </div>
+                      <span className="text-sm text-gray-200 font-medium leading-tight">
+                        {p.name || p.identity || 'Anonymous'}
+                      </span>
+                      {p.isLocal && <span className="ml-auto text-[8px] bg-white/10 px-1.5 py-0.5 rounded text-gray-400 uppercase font-black">You</span>}
                     </div>
-                    <span className="text-sm text-gray-200 font-medium">{p.name || p.identity}</span>
-                    {p.isLocal && <span className="ml-auto text-[8px] bg-white/10 px-1.5 py-0.5 rounded text-gray-400 uppercase font-black">You</span>}
+
+                    {/* Mini Video Tile if publishing and not main speaker */}
+                    {isPublishingVideo && !p.isLocal && (
+                       <div className="w-full aspect-video rounded-lg overflow-hidden border border-white/10 bg-black/40 mt-1">
+                          <ParticipantTile 
+                            trackRef={cameraTracks.find(t => t.participant.identity === p.identity)} 
+                          />
+                       </div>
+                    )}
+                    
+                    {isMentor && !p.isLocal && (
+                       <div className="flex items-center gap-2 mt-1 pt-1 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {pMetadata.handRaised && (
+                             <button onClick={async () => {
+                                 const encoder = new TextEncoder();
+                                 const data = encoder.encode(JSON.stringify({ action: 'LOWER_HAND', target: p.identity }));
+                                 await localParticipant.publishData(data, { reliable: true });
+                             }} className="px-2 py-1 bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30 text-[9px] font-bold rounded">
+                               Lower Hand
+                             </button>
+                          )}
+                          {!pMetadata.canSpeak ? (
+                             <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(JSON.stringify({ 
+                                      action: 'ALLOW_SPEAK', 
+                                      target: p.identity 
+                                    }));
+                                    await localParticipant.publishData(data, { reliable: true });
+                                    console.log("Sent ALLOW_SPEAK signal to:", p.identity);
+                                  } catch (err) {
+                                    console.error("Failed to send allow speak signal:", err);
+                                  }
+                             }} className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 hover:bg-green-500/30 text-[9px] font-bold rounded">
+                              <Mic className="w-3 h-3" /> Allow Speak
+                            </button>
+                          ) : (
+                             <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(JSON.stringify({ 
+                                      action: 'REVOKE_SPEAK', 
+                                      target: p.identity 
+                                    }));
+                                    await localParticipant.publishData(data, { reliable: true });
+                                    console.log("Sent REVOKE_SPEAK signal to:", p.identity);
+                                  } catch (err) {
+                                    console.error("Failed to send revoke speak signal:", err);
+                                  }
+                             }} className="flex items-center gap-1 px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 text-[9px] font-bold rounded">
+                              <MicOff className="w-3 h-3" /> Revoke
+                            </button>
+                          )}
+                       </div>
+                    )}
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           </div>

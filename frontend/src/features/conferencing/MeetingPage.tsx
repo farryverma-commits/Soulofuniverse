@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
 import { MeetingView } from '../../components/conferencing/MeetingView';
-import { ShieldAlert, Lock } from 'lucide-react';
+import { ShieldAlert, Lock, Video } from 'lucide-react';
 import { OrbitalLoader } from '../../components/OrbitalLoader';
 
 export const MeetingPage: React.FC = () => {
@@ -11,7 +11,8 @@ export const MeetingPage: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [isMentor, setIsMentor] = useState(false);
-  const [status, setStatus] = useState<'loading' | 'waiting' | 'ready' | 'error' | 'not_started'>('loading');
+  const [mentorId, setMentorId] = useState<string | null>(null);
+  const [status, setStatus] = useState<'loading' | 'waiting' | 'ready' | 'error' | 'not_started' | 'permissions'>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
@@ -46,6 +47,7 @@ export const MeetingPage: React.FC = () => {
         }
 
         setIsMentor(session.mentor_id === user.id);
+        setMentorId(session.mentor_id);
 
         // 2. Try to get token
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-get-token`, {
@@ -61,7 +63,7 @@ export const MeetingPage: React.FC = () => {
 
         if (response.ok) {
           console.log('Token received successfully');
-          
+
           // Mark user as officially joined
           await supabase.from('session_participants').upsert({
             session_id: sessionId,
@@ -72,7 +74,9 @@ export const MeetingPage: React.FC = () => {
 
           setToken(data.participant_token);
           setServerUrl(data.server_url);
-          setStatus('ready');
+
+          // 3. Request permissions before entering
+          setStatus('permissions');
         } else {
           console.error('Token request failed:', data);
           if (data.error?.includes('Approval required')) {
@@ -98,13 +102,13 @@ export const MeetingPage: React.FC = () => {
     checkSessionAndJoin();
 
     // Subscribe to session_participants for approval
-    const subscription = supabase
+    const participantSubscription = supabase
       .channel(`session_participants_${sessionId}`)
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
         table: 'session_participants',
-        filter: `session_id=eq.${sessionId}` 
+        filter: `session_id=eq.${sessionId}`
       }, (payload) => {
         if (payload.new.status === 'approved') {
           checkSessionAndJoin(); // Retry getting token
@@ -112,8 +116,24 @@ export const MeetingPage: React.FC = () => {
       })
       .subscribe();
 
+    // Subscribe to session status changes (for "Meeting Not Started" screen)
+    const sessionSubscription = supabase
+      .channel(`group_session_${sessionId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'group_sessions',
+        filter: `id=eq.${sessionId}`
+      }, (payload) => {
+        if (payload.new.status === 'live') {
+          checkSessionAndJoin();
+        }
+      })
+      .subscribe();
+
     return () => {
-      subscription.unsubscribe();
+      participantSubscription.unsubscribe();
+      sessionSubscription.unsubscribe();
     };
   }, [sessionId, navigate]);
 
@@ -131,14 +151,14 @@ export const MeetingPage: React.FC = () => {
           {isMentor ? 'Ready to Start?' : 'Meeting Not Started'}
         </h2>
         <p className="text-gray-500 max-w-sm font-medium">
-          {isMentor 
+          {isMentor
             ? 'You are the host of this masterclass. Click below to go live and allow participants to join.'
             : "The host hasn't started this meeting yet. Please wait or check back later."}
         </p>
-        
+
         <div className="flex flex-col sm:flex-row gap-4 mt-8">
           {isMentor && (
-            <button 
+            <button
               disabled={isStarting}
               onClick={async () => {
                 setIsStarting(true);
@@ -164,7 +184,7 @@ export const MeetingPage: React.FC = () => {
               {isStarting ? <OrbitalLoader variant="button" /> : 'Start Session Now'}
             </button>
           )}
-          <button 
+          <button
             onClick={() => navigate('/')}
             className="px-8 py-3 bg-white text-dark border-2 border-gray-100 rounded-xl font-black text-sm"
           >
@@ -189,6 +209,63 @@ export const MeetingPage: React.FC = () => {
     );
   }
 
+  if (status === 'permissions') {
+    const isSecure = window.isSecureContext;
+    const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
+        <div className="w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center mb-6">
+          <Video className="w-10 h-10 text-primary" />
+        </div>
+        <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Ready to Join?</h2>
+        <p className="text-gray-500 max-w-sm font-medium mb-8">
+          {!isSecure
+            ? "Note: You are using an insecure connection (HTTP). Camera and microphone access usually requires HTTPS."
+            : "Soul of Universe needs access to your camera and microphone for the full session experience."}
+        </p>
+
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button
+            onClick={async () => {
+              if (!hasMediaDevices) {
+                setStatus('error');
+                setErrorMsg('Your browser or connection does not support camera/mic access. Please use HTTPS or a supported browser.');
+                return;
+              }
+              try {
+                // Request both but handle cases where only one is available
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                setStatus('ready');
+              } catch (err: any) {
+                console.error("Permission denied or error:", err);
+                if (isMentor) {
+                  setStatus('error');
+                  setErrorMsg('As a host, camera and microphone access is required. Please enable permissions in your browser settings.');
+                } else {
+                  // For participants, allow them to join even if they denied initially
+                  setStatus('ready');
+                }
+              }
+            }}
+            className="px-8 py-4 bg-primary text-white rounded-2xl font-black text-sm shadow-xl shadow-primary/30 hover:scale-105 transition-all"
+          >
+            Allow Permissions & Join
+          </button>
+
+          {!isMentor && (
+            <button
+              onClick={() => setStatus('ready')}
+              className="px-8 py-4 bg-white text-gray-500 border-2 border-gray-100 rounded-2xl font-black text-sm hover:bg-gray-50 transition-all"
+            >
+              Join as Listener
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'error') {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
@@ -197,7 +274,7 @@ export const MeetingPage: React.FC = () => {
         </div>
         <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Connection Error</h2>
         <p className="text-red-500 max-w-sm font-bold">{errorMsg}</p>
-        <button 
+        <button
           onClick={() => navigate('/')}
           className="mt-8 px-8 py-3 bg-dark text-white rounded-xl font-black text-sm"
         >
@@ -208,12 +285,15 @@ export const MeetingPage: React.FC = () => {
   }
 
   return (
-    <MeetingView 
-      token={token!} 
-      serverUrl={serverUrl!} 
+
+    <MeetingView
+      token={token!}
+      serverUrl={serverUrl!}
       sessionId={sessionId!}
       isMentor={isMentor}
-      onDisconnected={() => navigate('/')} 
+      mentorId={mentorId!}
+      onDisconnected={() => navigate('/')}
     />
+
   );
 };
