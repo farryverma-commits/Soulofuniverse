@@ -1,0 +1,4 @@
+/* Hide LiveKit's built-in participant metadata to avoid overlap with custom overlay */
+.participant-metadata {
+  display: none !important;
+}
