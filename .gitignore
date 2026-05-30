@@ -57,5 +57,4 @@ yarn-error.log*
 migration.sql
 .DS_Store
 .commandcode/taste/taste.md
-AGENTS.md
 graphify-out
