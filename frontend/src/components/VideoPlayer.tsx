@@ -80,7 +80,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
       <style>{`
         .vjs-theme-youtube.video-js {
           color: #fff;
-          font-family: 'Inter', sans-serif;
+          font-family: 'Inter', system-ui, sans-serif;
         }
 
         /* Control Bar Base - Remove !important to allow auto-hide */
@@ -254,7 +254,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
         }
 
         .vjs-theme-youtube .vjs-play-progress {
-          background-color: #FF0000 !important;
+          background-color: #3D3BF3 !important;
         }
 
         .vjs-theme-youtube .vjs-play-progress:before {
@@ -265,7 +265,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
 
         /* Big Play Button */
         .vjs-theme-youtube .vjs-big-play-button {
-          background-color: rgba(255, 0, 0, 0.85) !important;
+          background-color: rgba(61, 59, 243, 0.9) !important;
           border: none !important;
           width: 68px !important;
           height: 48px !important;
@@ -288,7 +288,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
         }
 
         .vjs-theme-youtube:hover .vjs-big-play-button {
-          background-color: #FF0000 !important;
+          background-color: #3D3BF3 !important;
           transform: scale(1.1);
         }
 
