@@ -56,5 +56,5 @@ yarn-error.log*
 *.local
 migration.sql
 .DS_Store
-.commandcode/taste/taste.md
+.commandcode/
 graphify-out

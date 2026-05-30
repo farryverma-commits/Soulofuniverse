@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Calendar as CalendarIcon, Clock, User, ArrowRight, CheckCircle2, ChevronRight, Sparkles } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2, ChevronRight } from 'lucide-react'
 import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { supabase } from '../../services/supabaseClient'
 import { useSelector } from 'react-redux'
@@ -28,8 +28,11 @@ export const BookingPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [booking, setBooking] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+  const clearError = useCallback(() => setError(null), [])
 
   useEffect(() => {
     fetchMentors()
@@ -40,7 +43,7 @@ export const BookingPage: React.FC = () => {
       .from('profiles')
       .select('*')
       .eq('role', 'mentor')
-    
+
     if (!error && data) setMentors(data)
     setLoading(false)
   }
@@ -85,28 +88,25 @@ export const BookingPage: React.FC = () => {
     if (!user || !selectedMentor) return
     setBooking(true)
 
-    // Calculate next occurrence of this day of week
     const now = new Date()
     const resultDate = new Date()
     resultDate.setDate(now.getDate() + (slot.day_of_week + 7 - now.getDay()) % 7)
-    
+
     const [startH, startM] = slot.start_time.split(':')
     const [endH, endM] = slot.end_time.split(':')
-    
+
     const startTime = new Date(resultDate.setHours(parseInt(startH), parseInt(startM), 0, 0)).toISOString()
     const endTime = new Date(resultDate.setHours(parseInt(endH), parseInt(endM), 0, 0)).toISOString()
 
     const { error } = await supabase
       .from('appointments')
-      .insert([
-        {
-          mentor_id: selectedMentor.id,
-          student_id: user.id,
-          start_time: startTime,
-          end_time: endTime,
-          status: 'pending'
-        }
-      ])
+      .insert([{
+        mentor_id: selectedMentor.id,
+        student_id: user.id,
+        start_time: startTime,
+        end_time: endTime,
+        status: 'pending'
+      }])
 
     if (!error) {
       setSuccess(true)
@@ -115,8 +115,7 @@ export const BookingPage: React.FC = () => {
         setSelectedMentor(null)
       }, 3000)
     } else {
-      console.error(error)
-      alert(`Booking failed: ${error.message}`)
+      setError(error.message || 'Booking failed. Please try again.')
     }
     setBooking(false)
   }
@@ -131,131 +130,148 @@ export const BookingPage: React.FC = () => {
 
   if (success) {
     return (
-      <div className="max-w-md mx-auto py-20 text-center space-y-6 animate-in zoom-in-95 duration-300">
-        <div className="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto shadow-xl shadow-green-500/10">
-          <CheckCircle2 className="w-12 h-12" />
+      <div className="max-w-sm mx-auto py-20 text-center space-y-4 animate-scale-in">
+        <div className="w-14 h-14 bg-success-light text-success rounded-lg flex items-center justify-center mx-auto">
+          <CheckCircle2 size={28} />
         </div>
-        <h2 className="text-3xl font-black text-dark">Session Booked!</h2>
-        <p className="text-gray-500 font-medium">Your request has been sent to the mentor. You'll be notified once they approve it.</p>
-        <button 
+        <h2 className="text-xl font-bold text-text">Session booked</h2>
+        <p className="text-sm text-text-secondary">Your request has been sent to the mentor. You'll be notified once approved.</p>
+        <button
           onClick={() => setSuccess(false)}
-          className="btn-primary px-8"
+          className="btn-primary text-sm"
         >
-          Return to Dashboard
+          Return to dashboard
         </button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <header>
-        <h1 className="text-3xl font-bold text-dark tracking-tight">
-          Book a <span className="text-primary italic">Discussion Session</span>
+        <h1 className="text-2xl font-bold text-text tracking-tight">
+          Book a <span className="text-primary">session</span>
         </h1>
-        <p className="text-gray-500 mt-2 font-medium">Choose a mentor and find a time that works for you.</p>
+        <p className="text-text-secondary text-sm mt-1">Choose a mentor and find a time that works for you.</p>
       </header>
 
+      {error && (
+        <div className="bg-error-light border border-error/20 rounded-md p-3 flex items-center justify-between animate-fade-in">
+          <p className="text-xs font-semibold text-error">{error}</p>
+          <button onClick={clearError} className="text-error/60 hover:text-error transition-colors p-1" aria-label="Dismiss error">
+            <span className="text-lg leading-none">&times;</span>
+          </button>
+        </div>
+      )}
+
       {!selectedMentor ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {mentors.map(mentor => (
-            <div key={mentor.id} className="card-premium group hover:border-primary/20 transition-all">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-surface-light flex items-center justify-center text-primary font-black text-xl border border-gray-100 shadow-sm overflow-hidden">
-                  {mentor.avatar_url ? <img src={mentor.avatar_url} alt={mentor.full_name || 'Mentor'} className="w-full h-full object-cover" /> : (mentor.full_name ? mentor.full_name[0] : '?')}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {mentors.map((mentor, i) => (
+            <div key={mentor.id} className="card card-hover p-5 animate-fade-in" style={{ animationDelay: `${i * 40}ms` }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-md bg-primary-light flex items-center justify-center text-primary font-bold text-sm">
+                  {mentor.avatar_url ? (
+                    <img src={mentor.avatar_url} alt={mentor.full_name || 'Mentor'} className="w-full h-full object-cover rounded-md" />
+                  ) : (
+                    mentor.full_name ? mentor.full_name[0] : '?'
+                  )}
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-dark">{mentor.full_name || 'Anonymous Mentor'}</h3>
-                  <span className="text-xs font-bold text-primary bg-blue-50 px-2 py-1 rounded-lg uppercase tracking-wider">Mentor</span>
+                  <h3 className="text-sm font-semibold text-text">{mentor.full_name || 'Anonymous Mentor'}</h3>
+                  <span className="badge badge-primary text-[9px]">Mentor</span>
                 </div>
               </div>
-              <p className="text-sm text-gray-500 line-clamp-2 font-medium leading-relaxed mb-6">
-                {mentor.bio || "No bio available. This mentor is ready to discuss and guide you through your journey."}
+              <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed mb-4">
+                {mentor.bio || "Ready to discuss and guide you through your journey."}
               </p>
-              <button 
+              <button
                 onClick={() => handleSelectMentor(mentor)}
-                className="w-full py-3 bg-surface-light group-hover:bg-primary group-hover:text-white text-gray-600 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+                className="btn-secondary w-full text-xs py-2"
               >
-                View Availability <ChevronRight className="w-4 h-4" />
+                View availability <ChevronRight size={14} />
               </button>
             </div>
           ))}
         </div>
       ) : (
-        <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
-          <button 
+        <div className="space-y-6 animate-fade-in">
+          <button
             onClick={() => setSelectedMentor(null)}
-            className="text-sm font-bold text-gray-400 hover:text-primary transition-colors flex items-center gap-1"
+            className="text-xs font-semibold text-text-muted hover:text-primary transition-colors"
           >
-            ← Back to Mentors
+            &larr; Back to mentors
           </button>
 
-          <div className="flex flex-col lg:flex-row gap-8">
+          <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1">
-              <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-                 <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                   <CalendarIcon className="w-5 h-5 text-primary" />
-                   Available Slots for {selectedMentor.full_name || 'Mentor'}
-                 </h2>
+              <div className="card p-6">
+                <h2 className="text-sm font-bold text-text mb-4 flex items-center gap-2">
+                  <CalendarIcon size={16} className="text-primary" />
+                  Available slots for {selectedMentor.full_name || 'Mentor'}
+                </h2>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   {days.map((day, dayIdx) => {
-                     const daySlots = availability.filter(a => a.day_of_week === dayIdx)
-                     if (daySlots.length === 0) return null
-                     
-                     return (
-                       <div key={day} className="space-y-3">
-                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] ml-1">{day}</h4>
-                         <div className="grid grid-cols-1 gap-2">
-                           {daySlots.map(slot => {
-                             const isBooked = bookedSlots.includes(getSlotStartTime(slot))
-                             return (
-                               <button
-                                 key={slot.id}
-                                 disabled={booking || isBooked}
-                                 onClick={() => handleBookSession(slot)}
-                                 className={`flex items-center justify-between p-4 bg-surface-light hover:bg-white hover:border-primary/30 border-2 border-transparent rounded-2xl transition-all group active:scale-[0.98] ${isBooked ? 'opacity-50 cursor-not-allowed hover:bg-surface-light hover:border-transparent' : ''}`}
-                               >
-                                 <span className="font-bold text-dark group-hover:text-primary transition-colors">
-                                   {slot.start_time.slice(0,5)} - {slot.end_time.slice(0,5)}
-                                 </span>
-                                 <span className="text-[10px] font-black uppercase text-primary opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1">
-                                   {isBooked ? 'Already Booked' : <>Book Now <ArrowRight className="w-3 h-3" /></>}
-                                 </span>
-                               </button>
-                             )
-                           })}
-                         </div>
-                       </div>
-                     )
-                   })}
-                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {days.map((day, dayIdx) => {
+                    const daySlots = availability.filter(a => a.day_of_week === dayIdx)
+                    if (daySlots.length === 0) return null
+
+                    return (
+                      <div key={day} className="space-y-2">
+                        <h4 className="section-label ml-0.5">{day}</h4>
+                        <div className="space-y-1.5">
+                          {daySlots.map(slot => {
+                            const isBooked = bookedSlots.includes(getSlotStartTime(slot))
+                            return (
+                              <button
+                                key={slot.id}
+                                disabled={booking || isBooked}
+                                onClick={() => handleBookSession(slot)}
+                                className={`w-full group flex items-center justify-between p-3 rounded-md text-sm transition-all ${
+                                  isBooked
+                                    ? 'bg-canvas text-text-muted cursor-not-allowed'
+                                    : 'bg-canvas hover:bg-primary-light hover:text-primary border border-border hover:border-primary/20 text-text'
+                                }`}
+                              >
+                                <span className="font-semibold">
+                                  {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
+                                </span>
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                  {isBooked ? 'Booked' : 'Book'}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
 
-            <aside className="w-full lg:w-80">
-              <div className="card-premium bg-dark text-white border-none shadow-2xl">
-                <div className="flex items-center gap-4 mb-6">
-                   <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-primary font-black">
-                      {selectedMentor.full_name ? selectedMentor.full_name[0] : '?'}
-                   </div>
-                   <div>
-                      <h4 className="font-bold">{selectedMentor.full_name || 'Anonymous Mentor'}</h4>
-                      <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Selected Mentor</p>
-                   </div>
-                </div>
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-xs font-medium">Personalized 1-on-1 Session</span>
+            <aside className="w-full lg:w-72">
+              <div className="card p-5 bg-nav text-white">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-md bg-white/10 flex items-center justify-center text-primary font-bold text-sm">
+                    {selectedMentor.full_name ? selectedMentor.full_name[0] : '?'}
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-4 h-4 text-primary" />
-                    <span className="text-xs font-medium">60 Minute Discussion</span>
+                  <div>
+                    <h4 className="text-sm font-semibold">{selectedMentor.full_name || 'Anonymous Mentor'}</h4>
+                    <p className="text-[10px] text-white/30 font-semibold uppercase tracking-wider">Selected mentor</p>
                   </div>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-6 leading-relaxed italic">
-                  * Note: Bookings are pending mentor approval. You will receive an email confirmation once approved.
+                <div className="space-y-2 text-xs text-white/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                    <span>Personalized 1-on-1 session</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                    <span>60 minute discussion</span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-white/25 mt-4 leading-relaxed">
+                  Bookings are pending mentor approval. You'll receive confirmation once approved.
                 </p>
               </div>
             </aside>

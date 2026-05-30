@@ -5,18 +5,7 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {
-      colors: {
-        primary: "#2196F3",
-        surface: "#FFFFFF",
-        "surface-light": "#F7F9FB",
-        dark: "#191C1E",
-      },
-      borderRadius: {
-        'xl': '1rem',
-        '2xl': '1.5rem',
-      }
-    },
+    extend: {},
   },
   plugins: [],
 }

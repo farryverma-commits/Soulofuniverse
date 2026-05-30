@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Users, Video, Calendar, Activity, ArrowUpRight, Shield, Settings, Server, ExternalLink, MoreHorizontal, UserCheck, UserPlus } from 'lucide-react'
+import { Users, Video, Calendar, Activity, ArrowUpRight, Shield, Settings, Server, ExternalLink, UserCheck, UserPlus } from 'lucide-react'
 import { supabase } from '../../services/supabaseClient'
 
 interface Stats {
@@ -23,7 +23,6 @@ export const AdminDashboardPage: React.FC = () => {
   }, [])
 
   const fetchStats = async () => {
-    // Fetch counts from Supabase
     const { count: students } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'student')
     const { count: mentors } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'mentor')
     const { count: sessions } = await supabase.from('sessions').select('*', { count: 'exact', head: true })
@@ -39,75 +38,74 @@ export const AdminDashboardPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-10">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-8">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest rounded-md border border-primary/10">System Admin</span>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="badge badge-primary">System Admin</span>
           </div>
-          <h1 className="text-3xl font-black text-dark tracking-tighter">Platform Control Center</h1>
-          <p className="text-gray-500 font-medium">Monitoring the pulse of Soul of Universe LMS.</p>
+          <h1 className="text-2xl font-bold text-text tracking-tight">Platform control center</h1>
+          <p className="text-text-secondary text-sm mt-0.5">Monitoring the pulse of Soul of Universe.</p>
         </div>
-        
-        <div className="flex gap-3">
-          <button className="p-3 bg-white rounded-2xl border border-gray-100 shadow-sm text-gray-400 hover:text-primary transition-all">
-            <Settings className="w-6 h-6" />
+        <div className="flex gap-2">
+          <button className="btn-secondary text-xs py-2">
+            <Settings size={14} /> Settings
           </button>
-          <button className="btn-primary px-6 py-3 flex items-center gap-2 shadow-lg shadow-primary/20">
-            <Shield className="w-5 h-5" /> Global Security
+          <button className="btn-primary text-xs py-2">
+            <Shield size={14} /> Security
           </button>
         </div>
       </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Active Students" value={stats.totalStudents} icon={<Users />} trend="+12%" color="bg-blue-500" />
-        <StatCard title="Total Mentors" value={stats.totalMentors} icon={<UserCheck />} trend="+3%" color="bg-purple-500" />
-        <StatCard title="VOD Content" value={stats.totalSessions} icon={<Video />} trend="+5%" color="bg-orange-500" />
-        <StatCard title="Active Bookings" value={stats.activeBookings} icon={<Calendar />} trend="+18%" color="bg-green-500" />
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard title="Students" value={stats.totalStudents} icon={<Users size={16} />} trend="+12%" color="var(--color-primary)" />
+        <StatCard title="Mentors" value={stats.totalMentors} icon={<UserCheck size={16} />} trend="+3%" color="var(--color-accent)" />
+        <StatCard title="VOD content" value={stats.totalSessions} icon={<Video size={16} />} trend="+5%" color="var(--color-warning)" />
+        <StatCard title="Active bookings" value={stats.activeBookings} icon={<Calendar size={16} />} trend="+18%" color="var(--color-success)" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Activity */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="card-premium">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-xl font-black text-dark tracking-tight">System Logs</h2>
-              <button className="text-xs font-bold text-primary hover:underline">Download CSV</button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* System logs */}
+        <div className="lg:col-span-2">
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-text">System logs</h2>
+              <button className="text-xs font-semibold text-primary hover:underline">Export CSV</button>
             </div>
-            
-            <div className="space-y-1">
-              <LogItem icon={<UserPlus />} title="New Student Registration" description="jendh@soulofuniverse.com joined the platform" time="2 mins ago" />
-              <LogItem icon={<Calendar />} title="Session Scheduled" description="Quantum Mechanics with Mentor Sharan" time="15 mins ago" />
-              <LogItem icon={<Activity />} title="LiveKit Token Generated" description="Session ID: session_99283 - Peer: student_01" time="1 hour ago" />
-              <LogItem icon={<Server />} title="MediaCMS Sync Complete" description="Successfully ingested 4 new HLS streams" time="3 hours ago" />
+
+            <div className="divide-y divide-border">
+              <LogItem icon={<UserPlus size={14} />} title="New student registration" description="jendh@soulofuniverse.com joined" time="2 min ago" />
+              <LogItem icon={<Calendar size={14} />} title="Session scheduled" description="Quantum Mechanics with Mentor Sharan" time="15 min ago" />
+              <LogItem icon={<Activity size={14} />} title="LiveKit token generated" description="Session ID: session_99283" time="1 hr ago" />
+              <LogItem icon={<Server size={14} />} title="MediaCMS sync complete" description="Ingested 4 new HLS streams" time="3 hr ago" />
             </div>
-            
-            <button className="w-full mt-8 py-4 bg-surface-light text-gray-500 text-sm font-bold rounded-2xl hover:bg-gray-100 transition-all">
-              View Full Audit Trail
+
+            <button className="w-full mt-4 py-2.5 bg-canvas text-text-secondary text-xs font-semibold rounded-md hover:bg-border transition-colors">
+              View full audit trail
             </button>
           </div>
         </div>
 
-        {/* System Health */}
-        <div className="space-y-6">
-          <div className="card-premium h-fit">
-            <h2 className="text-xl font-black text-dark tracking-tight mb-8">Infrastructure</h2>
-            
-            <div className="space-y-6">
+        {/* Infrastructure */}
+        <div>
+          <div className="card p-5">
+            <h2 className="text-sm font-bold text-text mb-4">Infrastructure</h2>
+
+            <div className="space-y-3">
               <HealthItem label="Supabase Auth & DB" status="Operational" delay="12ms" />
               <HealthItem label="MediaCMS (Self-Hosted)" status="Operational" delay="45ms" />
               <HealthItem label="LiveKit SFU" status="Operational" delay="8ms" />
             </div>
 
-            <div className="mt-10 p-5 bg-dark rounded-[2rem] text-white">
-              <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-2">Cloud Usage</h4>
+            <div className="mt-5 p-4 bg-nav rounded-md">
+              <p className="section-label text-white/30 mb-2">Cloud usage</p>
               <div className="flex justify-between items-end mb-2">
-                <span className="text-2xl font-black">42%</span>
-                <span className="text-[10px] text-gray-500 font-bold">Storage Capacity</span>
+                <span className="text-xl font-bold text-white">42%</span>
+                <span className="text-[10px] text-white/30 font-semibold">Storage capacity</span>
               </div>
               <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-primary h-full w-[42%]" />
+                <div className="bg-primary h-full rounded-full" style={{ width: '42%' }} />
               </div>
             </div>
           </div>
@@ -119,33 +117,33 @@ export const AdminDashboardPage: React.FC = () => {
 
 function StatCard({ title, value, icon, trend, color }: { title: string; value: number; icon: React.ReactNode; trend: string; color: string }) {
   return (
-    <div className="card-premium group hover:border-primary/20 transition-all">
-      <div className="flex justify-between items-start mb-6">
-        <div className={`p-3 rounded-2xl text-white shadow-lg ${color} shadow-${color.split('-')[1]}-500/20`}>
-          {React.cloneElement(icon as React.ReactElement, { className: 'w-6 h-6' })}
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="w-8 h-8 rounded-md flex items-center justify-center text-white" style={{ background: color }}>
+          {icon}
         </div>
-        <span className="text-[10px] font-black text-green-500 bg-green-50 px-2 py-1 rounded-lg flex items-center gap-1">
-          {trend} <ArrowUpRight className="w-3 h-3" />
+        <span className="text-[10px] font-semibold text-success flex items-center gap-0.5">
+          {trend} <ArrowUpRight size={10} />
         </span>
       </div>
-      <h3 className="text-gray-400 font-bold text-xs uppercase tracking-widest mb-1">{title}</h3>
-      <p className="text-4xl font-black text-dark tracking-tighter">{value}</p>
+      <p className="section-label mb-0.5">{title}</p>
+      <p className="text-2xl font-bold text-text tracking-tight">{value}</p>
     </div>
   )
 }
 
 function LogItem({ icon, title, description, time }: { icon: React.ReactNode; title: string; description: string; time: string }) {
   return (
-    <div className="flex gap-4 p-4 hover:bg-surface-light rounded-2xl transition-all group">
-      <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-gray-400 group-hover:text-primary transition-colors border border-gray-50">
-        {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+    <div className="flex gap-3 py-3 hover:bg-canvas transition-colors -mx-1 px-1 rounded">
+      <div className="w-8 h-8 rounded-md bg-canvas flex items-center justify-center text-text-muted shrink-0 border border-border">
+        {icon}
       </div>
-      <div className="flex-1">
-        <div className="flex justify-between items-start">
-          <h4 className="text-sm font-black text-dark tracking-tight">{title}</h4>
-          <span className="text-[10px] text-gray-300 font-bold uppercase">{time}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-start gap-2">
+          <h4 className="text-xs font-semibold text-text truncate">{title}</h4>
+          <span className="text-[10px] text-text-muted font-medium shrink-0">{time}</span>
         </div>
-        <p className="text-xs text-gray-500 font-medium">{description}</p>
+        <p className="text-xs text-text-secondary mt-0.5 truncate">{description}</p>
       </div>
     </div>
   )
@@ -155,12 +153,12 @@ function HealthItem({ label, status, delay }: { label: string; status: string; d
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h4 className="text-xs font-black text-dark uppercase tracking-tight">{label}</h4>
-        <span className="text-[10px] text-gray-400 font-bold italic">Lat: {delay}</span>
+        <h4 className="text-xs font-semibold text-text">{label}</h4>
+        <span className="text-[10px] text-text-muted font-medium italic">Lat: {delay}</span>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-        <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">{status}</span>
+      <div className="flex items-center gap-1.5">
+        <div className="w-1.5 h-1.5 bg-success rounded-full" />
+        <span className="text-[10px] font-semibold text-success uppercase tracking-wider">{status}</span>
       </div>
     </div>
   )

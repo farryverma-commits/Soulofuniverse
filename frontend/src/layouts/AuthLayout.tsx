@@ -9,46 +9,45 @@ interface AuthLayoutProps {
 
 export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, title, subtitle }) => {
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      {/* Left Side: Form */}
-      <div className="flex flex-col justify-center px-6 py-12 lg:px-24 bg-white">
+    <div className="min-h-screen flex">
+      {/* Left side: form */}
+      <div className="flex-1 flex flex-col justify-center px-6 py-12 lg:px-20 bg-surface">
         <div className="mx-auto w-full max-w-sm">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-              <Layout className="text-white w-6 h-6" />
+          <div className="flex items-center gap-2.5 mb-10">
+            <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: '#3D3BF3' }}>
+              <Layout className="text-white" size={16} />
             </div>
-            <span className="font-bold text-2xl tracking-tight text-dark">Soul of Universe</span>
+            <span className="text-sm font-bold text-text tracking-tight">Soul of Universe</span>
           </div>
-          
-          <div className="mb-10">
-            <h1 className="text-3xl font-bold text-dark tracking-tight">{title}</h1>
-            <p className="text-gray-500 mt-2 font-medium">{subtitle}</p>
+
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-text tracking-tight">{title}</h1>
+            <p className="text-text-secondary text-sm mt-1.5">{subtitle}</p>
           </div>
 
           {children}
         </div>
       </div>
 
-      {/* Right Side: Visual/Branding (Hidden on Mobile) */}
-      <div className="hidden lg:flex relative bg-surface-light items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent z-0" />
-        
-        {/* Abstract "Intellectual" UI Elements */}
-        <div className="relative z-10 text-center max-w-md p-12">
-          <div className="mb-8 inline-flex items-center justify-center w-20 h-20 bg-white rounded-3xl shadow-xl shadow-blue-900/5 rotate-3 transition-transform hover:rotate-0">
-            <Layout className="w-10 h-10 text-primary" />
+      {/* Right side: brand panel */}
+      <div className="hidden lg:flex flex-1 bg-nav items-center justify-center relative overflow-hidden">
+        <div className="relative z-10 text-center max-w-sm px-12">
+          <div className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-6" style={{ background: '#3D3BF3' }}>
+            <Layout className="text-white" size={24} />
           </div>
-          <h2 className="text-4xl font-black text-dark leading-tight mb-4">
-            Master the art of <span className="text-primary italic">Universal Intelligence.</span>
+          <h2 className="text-2xl font-bold text-white leading-snug mb-3">
+            Master the art of universal intelligence
           </h2>
-          <p className="text-gray-500 text-lg font-medium leading-relaxed">
-            A minimalist space designed for deep learning, high-impact mentorship, and cosmic exploration.
+          <p className="text-sm text-white/40 leading-relaxed">
+            A focused space for deep learning, high-impact mentorship, and cosmic exploration.
           </p>
         </div>
 
-        {/* Decorative Circles */}
-        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-[-5%] left-[-5%] w-[30%] h-[30%] bg-blue-500/5 rounded-full blur-2xl" />
+        {/* Subtle geometric accents */}
+        <div className="absolute top-[15%] left-[10%] w-32 h-32 border border-white/5 rounded-lg rotate-12" />
+        <div className="absolute bottom-[20%] right-[15%] w-24 h-24 border border-white/5 rounded-lg -rotate-6" />
+        <div className="absolute top-[60%] left-[20%] w-2 h-2 bg-primary/30 rounded-full" />
+        <div className="absolute top-[25%] right-[25%] w-1.5 h-1.5 bg-white/10 rounded-full" />
       </div>
     </div>
   )

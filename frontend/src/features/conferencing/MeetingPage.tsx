@@ -1,55 +1,41 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../../services/supabaseClient';
-import { MeetingView } from '../../components/conferencing/MeetingView';
-import { ShieldAlert, Lock, Video } from 'lucide-react';
-import { OrbitalLoader } from '../../components/OrbitalLoader';
+import React, { useEffect, useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { supabase } from '../../services/supabaseClient'
+import { MeetingView } from '../../components/conferencing/MeetingView'
+import { ShieldAlert, Lock, Video } from 'lucide-react'
+import { OrbitalLoader } from '../../components/OrbitalLoader'
 
 export const MeetingPage: React.FC = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
-  const [token, setToken] = useState<string | null>(null);
-  const [serverUrl, setServerUrl] = useState<string | null>(null);
-  const [isMentor, setIsMentor] = useState(false);
-  const [mentorId, setMentorId] = useState<string | null>(null);
-  const [status, setStatus] = useState<'loading' | 'waiting' | 'ready' | 'error' | 'not_started' | 'permissions'>('loading');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
+  const { sessionId } = useParams<{ sessionId: string }>()
+  const navigate = useNavigate()
+  const [token, setToken] = useState<string | null>(null)
+  const [serverUrl, setServerUrl] = useState<string | null>(null)
+  const [isMentor, setIsMentor] = useState(false)
+  const [mentorId, setMentorId] = useState<string | null>(null)
+  const [status, setStatus] = useState<'loading' | 'waiting' | 'ready' | 'error' | 'not_started' | 'permissions'>('loading')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState(false)
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) return
 
     const checkSessionAndJoin = async () => {
-      console.log('Starting checkSessionAndJoin for:', sessionId);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          navigate('/login');
-          return;
-        }
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) { navigate('/login'); return }
 
-        // 1. Fetch session details
         const { data: session, error: sessionError } = await supabase
           .from('group_sessions')
           .select('*')
           .eq('id', sessionId)
-          .single();
+          .single()
 
-        if (sessionError || !session) {
-          setStatus('error');
-          setErrorMsg('Meeting session not found.');
-          return;
-        }
+        if (sessionError || !session) { setStatus('error'); setErrorMsg('Meeting session not found.'); return }
+        if (session.status !== 'live') { setStatus('not_started'); return }
 
-        if (session.status !== 'live') {
-          setStatus('not_started');
-          return;
-        }
+        setIsMentor(session.mentor_id === user.id)
+        setMentorId(session.mentor_id)
 
-        setIsMentor(session.mentor_id === user.id);
-        setMentorId(session.mentor_id);
-
-        // 2. Try to get token
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-get-token`, {
           method: 'POST',
           headers: {
@@ -57,235 +43,173 @@ export const MeetingPage: React.FC = () => {
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
           },
           body: JSON.stringify({ session_id: sessionId }),
-        });
+        })
 
-        const data = await response.json();
+        const data = await response.json()
 
         if (response.ok) {
-          console.log('Token received successfully');
-
-          // Mark user as officially joined
           await supabase.from('session_participants').upsert({
             session_id: sessionId,
             user_id: user.id,
             status: 'joined',
             joined_at: new Date().toISOString()
-          });
-
-          setToken(data.participant_token);
-          setServerUrl(data.server_url);
-
-          // 3. Request permissions before entering
-          setStatus('permissions');
+          })
+          setToken(data.participant_token)
+          setServerUrl(data.server_url)
+          setStatus('permissions')
         } else {
-          console.error('Token request failed:', data);
           if (data.error?.includes('Approval required')) {
-            setStatus('waiting');
-            // Request approval if not already done
+            setStatus('waiting')
             await supabase.from('session_participants').upsert({
               session_id: sessionId,
               user_id: user.id,
               status: 'pending'
-            });
+            })
           } else {
-            setStatus('error');
-            setErrorMsg(data.error || 'Failed to join meeting.');
+            setStatus('error')
+            setErrorMsg(data.error || 'Failed to join meeting.')
           }
         }
       } catch (err) {
-        console.error(err);
-        setStatus('error');
-        setErrorMsg('An unexpected error occurred.');
+        setStatus('error')
+        setErrorMsg('An unexpected error occurred.')
       }
-    };
+    }
 
-    checkSessionAndJoin();
+    checkSessionAndJoin()
 
-    // Subscribe to session_participants for approval
     const participantSubscription = supabase
       .channel(`session_participants_${sessionId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'session_participants',
-        filter: `session_id=eq.${sessionId}`
-      }, (payload) => {
-        if (payload.new.status === 'approved') {
-          checkSessionAndJoin(); // Retry getting token
-        }
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'session_participants', filter: `session_id=eq.${sessionId}` }, (payload) => {
+        if (payload.new.status === 'approved') checkSessionAndJoin()
       })
-      .subscribe();
+      .subscribe()
 
-    // Subscribe to session status changes (for "Meeting Not Started" screen)
     const sessionSubscription = supabase
       .channel(`group_session_${sessionId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'group_sessions',
-        filter: `id=eq.${sessionId}`
-      }, (payload) => {
-        if (payload.new.status === 'live') {
-          checkSessionAndJoin();
-        }
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_sessions', filter: `id=eq.${sessionId}` }, (payload) => {
+        if (payload.new.status === 'live') checkSessionAndJoin()
       })
-      .subscribe();
+      .subscribe()
 
-    return () => {
-      participantSubscription.unsubscribe();
-      sessionSubscription.unsubscribe();
-    };
-  }, [sessionId, navigate]);
+    return () => { participantSubscription.unsubscribe(); sessionSubscription.unsubscribe() }
+  }, [sessionId, navigate])
 
   if (status === 'loading') {
-    return <OrbitalLoader variant="page" label="Connecting to Session..." />;
+    return <OrbitalLoader variant="page" label="Connecting to session..." />
   }
 
   if (status === 'not_started') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
-        <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6">
-          <Lock className="w-10 h-10 text-primary" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
+        <div className="w-14 h-14 bg-primary-light rounded-lg flex items-center justify-center mb-4">
+          <Lock size={24} className="text-primary" />
         </div>
-        <h2 className="text-3xl font-black text-dark tracking-tight mb-2">
-          {isMentor ? 'Ready to Start?' : 'Meeting Not Started'}
+        <h2 className="text-xl font-bold text-text mb-1">
+          {isMentor ? 'Ready to start?' : 'Meeting not started'}
         </h2>
-        <p className="text-gray-500 max-w-sm font-medium">
+        <p className="text-text-secondary text-sm max-w-sm">
           {isMentor
-            ? 'You are the host of this masterclass. Click below to go live and allow participants to join.'
+            ? 'You are the host. Click below to go live and allow participants to join.'
             : "The host hasn't started this meeting yet. Please wait or check back later."}
         </p>
-
-        <div className="flex flex-col sm:flex-row gap-4 mt-8">
+        <div className="flex gap-3 mt-6">
           {isMentor && (
             <button
               disabled={isStarting}
               onClick={async () => {
-                setIsStarting(true);
-                const { data: { session } } = await supabase.auth.getSession();
+                setIsStarting(true)
+                const { data: { session } } = await supabase.auth.getSession()
                 const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`, {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token}`,
-                  },
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
                   body: JSON.stringify({ session_id: sessionId, action: 'start' }),
-                });
-                if (response.ok) {
-                  window.location.reload();
-                } else {
-                  const err = await response.json();
-                  alert(`Error starting session: ${err.error}`);
-                  setIsStarting(false);
-                }
+                })
+                if (response.ok) window.location.reload()
+                else { const err = await response.json(); alert(`Error: ${err.error}`); setIsStarting(false) }
               }}
-              className="px-8 py-3 bg-primary text-white rounded-xl font-black text-sm shadow-xl shadow-primary/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-primary text-sm"
             >
-              {isStarting ? <OrbitalLoader variant="button" /> : 'Start Session Now'}
+              {isStarting ? <OrbitalLoader variant="button" /> : 'Start session now'}
             </button>
           )}
-          <button
-            onClick={() => navigate('/')}
-            className="px-8 py-3 bg-white text-dark border-2 border-gray-100 rounded-xl font-black text-sm"
-          >
-            Back to Dashboard
+          <button onClick={() => navigate('/')} className="btn-secondary text-sm">
+            Back to dashboard
           </button>
         </div>
       </div>
-    );
+    )
   }
 
   if (status === 'waiting') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
-        <div className="w-20 h-20 bg-yellow-50 rounded-3xl flex items-center justify-center mb-6">
-          <OrbitalLoader variant="inline" label="Waiting for host..." />
-        </div>
-        <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Waiting for Approval</h2>
-        <p className="text-gray-500 max-w-sm font-medium">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
+        <OrbitalLoader variant="inline" label="Waiting for host..." />
+        <h2 className="text-xl font-bold text-text mt-6 mb-1">Waiting for approval</h2>
+        <p className="text-text-secondary text-sm max-w-sm">
           The meeting requires host approval. You'll enter automatically once approved.
         </p>
       </div>
-    );
+    )
   }
 
   if (status === 'permissions') {
-    const isSecure = window.isSecureContext;
-    const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const isSecure = window.isSecureContext
+    const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
-        <div className="w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center mb-6">
-          <Video className="w-10 h-10 text-primary" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
+        <div className="w-14 h-14 bg-primary-light rounded-lg flex items-center justify-center mb-4">
+          <Video size={24} className="text-primary" />
         </div>
-        <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Ready to Join?</h2>
-        <p className="text-gray-500 max-w-sm font-medium mb-8">
+        <h2 className="text-xl font-bold text-text mb-1">Ready to join?</h2>
+        <p className="text-text-secondary text-sm max-w-sm mb-6">
           {!isSecure
-            ? "Note: You are using an insecure connection (HTTP). Camera and microphone access usually requires HTTPS."
-            : "Soul of Universe needs access to your camera and microphone for the full session experience."}
+            ? "You are using an insecure connection (HTTP). Camera/mic access requires HTTPS."
+            : "Soul of Universe needs access to your camera and microphone for the session."}
         </p>
-
-        <div className="flex flex-col gap-3 w-full max-w-xs">
+        <div className="flex flex-col gap-2 w-full max-w-xs">
           <button
             onClick={async () => {
-              if (!hasMediaDevices) {
-                setStatus('error');
-                setErrorMsg('Your browser or connection does not support camera/mic access. Please use HTTPS or a supported browser.');
-                return;
-              }
+              if (!hasMediaDevices) { setStatus('error'); setErrorMsg('Your browser does not support camera/mic access.'); return }
               try {
-                // Request both but handle cases where only one is available
-                await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                setStatus('ready');
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                setStatus('ready')
               } catch (err: any) {
-                console.error("Permission denied or error:", err);
-                if (isMentor) {
-                  setStatus('error');
-                  setErrorMsg('As a host, camera and microphone access is required. Please enable permissions in your browser settings.');
-                } else {
-                  // For participants, allow them to join even if they denied initially
-                  setStatus('ready');
-                }
+                if (isMentor) { setStatus('error'); setErrorMsg('Camera and microphone access is required for hosts.') }
+                else setStatus('ready')
               }
             }}
-            className="px-8 py-4 bg-primary text-white rounded-2xl font-black text-sm shadow-xl shadow-primary/30 hover:scale-105 transition-all"
+            className="btn-primary py-3 text-sm"
           >
-            Allow Permissions & Join
+            Allow permissions & join
           </button>
-
           {!isMentor && (
-            <button
-              onClick={() => setStatus('ready')}
-              className="px-8 py-4 bg-white text-gray-500 border-2 border-gray-100 rounded-2xl font-black text-sm hover:bg-gray-50 transition-all"
-            >
-              Join as Listener
+            <button onClick={() => setStatus('ready')} className="btn-secondary py-3 text-sm">
+              Join as listener
             </button>
           )}
         </div>
       </div>
-    );
+    )
   }
 
   if (status === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light px-4 text-center">
-        <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center mb-6">
-          <ShieldAlert className="w-10 h-10 text-red-500" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
+        <div className="w-14 h-14 bg-error-light rounded-lg flex items-center justify-center mb-4">
+          <ShieldAlert size={24} className="text-error" />
         </div>
-        <h2 className="text-3xl font-black text-dark tracking-tight mb-2">Connection Error</h2>
-        <p className="text-red-500 max-w-sm font-bold">{errorMsg}</p>
-        <button
-          onClick={() => navigate('/')}
-          className="mt-8 px-8 py-3 bg-dark text-white rounded-xl font-black text-sm"
-        >
-          Back to Dashboard
+        <h2 className="text-xl font-bold text-text mb-1">Connection error</h2>
+        <p className="text-error text-sm font-medium max-w-sm">{errorMsg}</p>
+        <button onClick={() => navigate('/')} className="btn-secondary text-sm mt-6">
+          Back to dashboard
         </button>
       </div>
-    );
+    )
   }
 
   return (
-
     <MeetingView
       token={token!}
       serverUrl={serverUrl!}
@@ -294,6 +218,5 @@ export const MeetingPage: React.FC = () => {
       mentorId={mentorId!}
       onDisconnected={() => navigate('/')}
     />
-
-  );
-};
+  )
+}
