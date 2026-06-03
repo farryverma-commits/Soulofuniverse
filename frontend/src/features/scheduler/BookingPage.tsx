@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2, ChevronRight } from 'lucide-react'
+import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2, ChevronRight, Sparkles } from 'lucide-react'
 import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { supabase } from '../../services/supabaseClient'
 import { useSelector } from 'react-redux'
@@ -130,16 +130,13 @@ export const BookingPage: React.FC = () => {
 
   if (success) {
     return (
-      <div className="max-w-sm mx-auto py-20 text-center space-y-4 animate-scale-in">
-        <div className="w-14 h-14 bg-success-light text-success rounded-lg flex items-center justify-center mx-auto">
-          <CheckCircle2 size={28} />
+      <div className="max-w-sm mx-auto py-20 text-center space-y-5 animate-scale-in">
+        <div className="w-16 h-16 bg-success-light text-success rounded-2xl flex items-center justify-center mx-auto">
+          <Sparkles size={28} />
         </div>
-        <h2 className="text-xl font-bold text-text">Session booked</h2>
-        <p className="text-sm text-text-secondary">Your request has been sent to the mentor. You'll be notified once approved.</p>
-        <button
-          onClick={() => setSuccess(false)}
-          className="btn-primary text-sm"
-        >
+        <h2 className="text-xl font-bold text-text">Session requested</h2>
+        <p className="text-sm text-text-secondary">Your request has been sent. The mentor will respond as the cosmos aligns.</p>
+        <button onClick={() => setSuccess(false)} className="btn-primary text-sm">
           Return to dashboard
         </button>
       </div>
@@ -156,9 +153,9 @@ export const BookingPage: React.FC = () => {
       </header>
 
       {error && (
-        <div className="bg-error-light border border-error/20 rounded-md p-3 flex items-center justify-between animate-fade-in">
+        <div className="bg-error-light border border-error/10 rounded-xl p-3.5 flex items-center justify-between animate-fade-in">
           <p className="text-xs font-semibold text-error">{error}</p>
-          <button onClick={clearError} className="text-error/60 hover:text-error transition-colors p-1" aria-label="Dismiss error">
+          <button onClick={clearError} className="text-error/60 hover:text-error transition-colors p-1 rounded-md" aria-label="Dismiss error">
             <span className="text-lg leading-none">&times;</span>
           </button>
         </div>
@@ -167,27 +164,24 @@ export const BookingPage: React.FC = () => {
       {!selectedMentor ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {mentors.map((mentor, i) => (
-            <div key={mentor.id} className="card card-hover p-5 animate-fade-in" style={{ animationDelay: `${i * 40}ms` }}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-md bg-primary-light flex items-center justify-center text-primary font-bold text-sm">
+            <div key={mentor.id} className="card card-hover p-5 animate-fade-in" style={{ animationDelay: `${i * 50}ms` }}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-xl bg-primary-light flex items-center justify-center text-primary font-bold text-sm">
                   {mentor.avatar_url ? (
-                    <img src={mentor.avatar_url} alt={mentor.full_name || 'Mentor'} className="w-full h-full object-cover rounded-md" />
+                    <img src={mentor.avatar_url} alt={mentor.full_name || 'Mentor'} className="w-full h-full object-cover rounded-xl" />
                   ) : (
                     mentor.full_name ? mentor.full_name[0] : '?'
                   )}
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-text">{mentor.full_name || 'Anonymous Mentor'}</h3>
-                  <span className="badge badge-primary text-[9px]">Mentor</span>
+                  <span className="badge badge-primary text-[9px] mt-0.5">Mentor</span>
                 </div>
               </div>
               <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed mb-4">
                 {mentor.bio || "Ready to discuss and guide you through your journey."}
               </p>
-              <button
-                onClick={() => handleSelectMentor(mentor)}
-                className="btn-secondary w-full text-xs py-2"
-              >
+              <button onClick={() => handleSelectMentor(mentor)} className="btn-secondary w-full text-xs py-2 justify-between">
                 View availability <ChevronRight size={14} />
               </button>
             </div>
@@ -197,27 +191,27 @@ export const BookingPage: React.FC = () => {
         <div className="space-y-6 animate-fade-in">
           <button
             onClick={() => setSelectedMentor(null)}
-            className="text-xs font-semibold text-text-muted hover:text-primary transition-colors"
+            className="text-xs font-semibold text-text-muted hover:text-primary transition-colors inline-flex items-center gap-1"
           >
             &larr; Back to mentors
           </button>
 
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1">
-              <div className="card p-6">
-                <h2 className="text-sm font-bold text-text mb-4 flex items-center gap-2">
+              <div className="card card-glow p-6">
+                <h2 className="text-sm font-bold text-text mb-5 flex items-center gap-2">
                   <CalendarIcon size={16} className="text-primary" />
                   Available slots for {selectedMentor.full_name || 'Mentor'}
                 </h2>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {days.map((day, dayIdx) => {
                     const daySlots = availability.filter(a => a.day_of_week === dayIdx)
                     if (daySlots.length === 0) return null
 
                     return (
                       <div key={day} className="space-y-2">
-                        <h4 className="section-label ml-0.5">{day}</h4>
+                        <h4 className="section-label">{day}</h4>
                         <div className="space-y-1.5">
                           {daySlots.map(slot => {
                             const isBooked = bookedSlots.includes(getSlotStartTime(slot))
@@ -226,16 +220,16 @@ export const BookingPage: React.FC = () => {
                                 key={slot.id}
                                 disabled={booking || isBooked}
                                 onClick={() => handleBookSession(slot)}
-                                className={`w-full group flex items-center justify-between p-3 rounded-md text-sm transition-all ${
+                                className={`w-full group flex items-center justify-between p-3 rounded-lg text-sm transition-all ${
                                   isBooked
-                                    ? 'bg-canvas text-text-muted cursor-not-allowed'
-                                    : 'bg-canvas hover:bg-primary-light hover:text-primary border border-border hover:border-primary/20 text-text'
+                                    ? 'bg-surface text-text-muted cursor-not-allowed border border-border'
+                                    : 'bg-surface hover:bg-primary-light border border-border hover:border-primary/20 text-text hover:text-text'
                                 }`}
                               >
                                 <span className="font-semibold">
                                   {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
                                 </span>
-                                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                                   {isBooked ? 'Booked' : 'Book'}
                                 </span>
                               </button>
@@ -246,21 +240,25 @@ export const BookingPage: React.FC = () => {
                     )
                   })}
                 </div>
+
+                {availability.length === 0 && (
+                  <p className="text-center text-xs text-text-muted py-4">No availability configured yet.</p>
+                )}
               </div>
             </div>
 
             <aside className="w-full lg:w-72">
-              <div className="card p-5 bg-nav text-white">
+              <div className="card card-glow p-5 bg-gradient-to-br from-accent/10 via-surface to-surface">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-md bg-white/10 flex items-center justify-center text-primary font-bold text-sm">
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-primary font-bold text-sm">
                     {selectedMentor.full_name ? selectedMentor.full_name[0] : '?'}
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold">{selectedMentor.full_name || 'Anonymous Mentor'}</h4>
-                    <p className="text-[10px] text-white/30 font-semibold uppercase tracking-wider">Selected mentor</p>
+                    <h4 className="text-sm font-semibold text-text">{selectedMentor.full_name || 'Anonymous Mentor'}</h4>
+                    <p className="text-[10px] text-text-muted font-semibold uppercase tracking-wider">Selected mentor</p>
                   </div>
                 </div>
-                <div className="space-y-2 text-xs text-white/60">
+                <div className="space-y-2.5 text-xs text-text-secondary">
                   <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-primary rounded-full" />
                     <span>Personalized 1-on-1 session</span>
@@ -270,8 +268,8 @@ export const BookingPage: React.FC = () => {
                     <span>60 minute discussion</span>
                   </div>
                 </div>
-                <p className="text-[10px] text-white/25 mt-4 leading-relaxed">
-                  Bookings are pending mentor approval. You'll receive confirmation once approved.
+                <p className="text-[10px] text-text-muted mt-4 leading-relaxed">
+                  Bookings are pending mentor approval. Confirmation arrives when the stars align.
                 </p>
               </div>
             </aside>

@@ -33,14 +33,13 @@ export const UserManagement: React.FC = () => {
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-text tracking-tight">User management</h1>
-          <p className="text-text-secondary text-sm mt-0.5">Manage permissions and oversee the community.</p>
+          <p className="text-text-secondary text-sm mt-0.5">Oversee the community across the cosmos.</p>
         </div>
         <button className="btn-primary text-xs py-2">
           <UserCircle size={14} /> Export users
         </button>
       </header>
 
-      {/* Filters */}
       <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
@@ -63,24 +62,23 @@ export const UserManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden card-glow">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-border">
-                <th className="px-4 py-3 section-label">User</th>
-                <th className="px-4 py-3 section-label">Role</th>
-                <th className="px-4 py-3 section-label">Joined</th>
-                <th className="px-4 py-3 section-label text-right">Actions</th>
+                <th className="px-4 py-3.5 section-label">User</th>
+                <th className="px-4 py-3.5 section-label">Role</th>
+                <th className="px-4 py-3.5 section-label">Joined</th>
+                <th className="px-4 py-3.5 section-label text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {users.map(user => (
-                <tr key={user.id} className="hover:bg-canvas transition-colors group">
-                  <td className="px-4 py-3">
+                <tr key={user.id} className="hover:bg-surface-raised transition-colors group">
+                  <td className="px-4 py-3.5">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-md bg-primary-light flex items-center justify-center text-primary font-bold text-xs">
+                      <div className="w-8 h-8 rounded-lg bg-primary-light flex items-center justify-center text-primary font-bold text-xs">
                         {user.full_name?.[0] || user.email[0].toUpperCase()}
                       </div>
                       <div className="min-w-0">
@@ -91,7 +89,7 @@ export const UserManagement: React.FC = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     <span className={`badge ${
                       user.role === 'admin' ? 'badge-accent' :
                       user.role === 'mentor' ? 'badge-primary' :
@@ -100,18 +98,18 @@ export const UserManagement: React.FC = () => {
                       {user.role}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     <span className="text-xs text-text-secondary font-medium flex items-center gap-1">
                       <Calendar size={12} className="text-text-muted" />
                       {new Date(user.created_at).toLocaleDateString()}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3.5 text-right">
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1.5 text-text-muted hover:text-primary hover:bg-primary-light rounded transition-colors">
+                      <button className="p-2 text-text-muted hover:text-primary hover:bg-primary-light rounded-lg transition-colors">
                         <Edit size={14} />
                       </button>
-                      <button className="p-1.5 text-text-muted hover:text-error hover:bg-error-light rounded transition-colors">
+                      <button className="p-2 text-text-muted hover:text-error hover:bg-error-light rounded-lg transition-colors">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -122,9 +120,11 @@ export const UserManagement: React.FC = () => {
           </table>
         </div>
         {users.length === 0 && !loading && (
-          <div className="py-16 text-center space-y-2">
-            <UserCircle className="w-10 h-10 text-text-muted mx-auto" />
-            <p className="text-sm text-text-secondary font-medium">No users found on the platform yet.</p>
+          <div className="py-16 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-surface-raised border border-border flex items-center justify-center mx-auto">
+              <UserCircle className="w-6 h-6 text-text-muted" />
+            </div>
+            <p className="text-sm text-text-secondary font-medium">No seekers in the cosmos yet.</p>
           </div>
         )}
       </div>

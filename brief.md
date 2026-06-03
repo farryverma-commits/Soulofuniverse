@@ -30,8 +30,8 @@ A dual-interface Learning Management System connecting students with mentors thr
 
 Professional, calming, intellectually stimulating. The brand name "Soul of Universe" carries weight — the design should feel grounded and contemplative, not corporate or playful. Words like "Seeker" for students signal a learning journey, not a transaction.
 
-**Do:** "Continue your journey", "Your next session", "Browse Mentors"
-**Don't:** "Get started", "Let's go!", "Welcome to your dashboard!"
+**Do:** "Continue your journey", "Your next session", "Browse Mentors", "Scanning the cosmos", "The stars align"
+**Don't:** "Get started", "Let's go!", "Welcome to your dashboard!", "Loading..."
 
 ## Anti-References
 
@@ -42,23 +42,31 @@ Professional, calming, intellectually stimulating. The brand name "Soul of Unive
 - No Excessive card nesting (card inside card)
 - No marketing fluff in a product surface
 
-## Current Design DNA
+## Current Design DNA — Cosmic Depths (2026 Redesign)
 
-The existing interface uses these patterns and they should be respected or evolved intentionally:
+The interface now lives in deep space: a dark cosmic canvas with starlight gold as the primary hue and cosmic purple as accent. The brand identity pulls every surface into the universe — vast, calm, profound, like a planetarium at night.
 
-- **Typography**: Inter (body) + Manrope (display). Heavy weights (700-900) for headings, medium (500) for body.
-- **Color**: Soft blue primary (#2196F3) on white/light gray (#F8FAFC) surfaces. Dark (#0F172A) for text and accent cards.
-- **Surface treatment**: White cards with 1px borders and subtle shadows. Glassmorphism (backdrop-blur) on the sticky nav. Large border-radius (2xl/3xl).
+- **Direction**: Cosmic Depths. Contemplative, grounded, vast. Not flashy sci-fi, not corporate dark mode. The cosmos is the brand.
+- **Typography**: Inter (body). Heavy weights (700-800) for headings, medium (500) for body. One family, clean hierarchy.
+- **Color — Dark cosmic whisper**:
+  - Canvas: `#0A0A14` (deep space), Surface: `#12121F`, Surface Raised: `#18182A`
+  - Text: `#F0EDF5` (star white), Text Secondary: `#8B87A3`, Text Muted: `#5C5873`
+  - Primary: `#D4A853` (starlight gold) — the star that guides
+  - Accent: `#7B5EA8` (cosmic purple) — the unknown depths
+  - Success: `#3BAF7A`, Error: `#E04E4E`, Warning: `#D4A843`
+  - Nav sidebar: `#060610` (void)
+- **Surface treatment**: Dark cards with 1px subtle borders (`#1E1C2E`). Raised surfaces shift to `#18182A`. Cards have subtle glow (`card-glow`) with primary-tinted box shadow. Brand imagery integrated into hero sections and auth panels.
+- **Component patterns**: `card`, `card-hover`, `card-glow`, `btn-primary` (gold on dark), `btn-secondary` (outlined), `btn-danger` (red tint), `input` (dark fields), `badge` system. Logo (`logo soul of universe.png`) in sidebar, auth panels, and loading screen. Cosmic imagery (`IMG_1732.PNG`) as hero background and brand panel texture.
 - **Density**: Generous spacing. Cards breathe. Not cramped.
-- **Component patterns**: `card-premium` for content blocks, `glass-nav` for sticky header, `btn-primary` for CTAs. Lucide icons throughout.
+- **Copy voice**: Cosmic but grounded. "Seeker" for students, "Continue your journey", "Scanning the cosmos", "The stars align", "Part of the cosmos". No SaaS clichés.
 
 ## Visual Foundation
 
-- **Palette commitment level**: Whisper. Blue accent on neutral surfaces. Color is rare enough to mean something.
-- **Border radius**: Large (16-24px default, up to 40px for hero elements). Round is the language.
-- **Shadows**: Minimal. Rely on borders and tonal shifts. Shadow-2xl reserved for overlays and hero cards.
-- **Motion**: Subtle. Slide-up entrances, scale-on-active for buttons, hover color transitions. No bouncing or elastic effects.
-- **Spacing scale**: Tailwind default 4px base. Sections separated by 32-40px. Cards padded 24px.
+- **Palette commitment level**: Whisper. Gold primary on deep space surfaces. Color is rare enough to mean something. Purple accent deepens the cosmic feel.
+- **Border radius**: 8-16px for components, 14px for cards, 24px for modals and hero sections. Round but grounded.
+- **Shadows**: Subtle glow (`box-shadow` tinted with primary gold at 3% opacity). Depth from tonal shifts, not heavy shadows.
+- **Motion**: Subtle. Slide-up entrances, scale-on-active for buttons, hover color transitions. Gold glow on primary button hover. Orbital loading animations with multi-ring spins.
+- **Spacing scale**: Tailwind default 4px base. Sections separated by 32-64px. Cards padded 20-24px.
 
 ## Accessibility
 

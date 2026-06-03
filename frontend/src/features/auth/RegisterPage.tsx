@@ -43,26 +43,29 @@ export const RegisterPage: React.FC = () => {
 
   return (
     <AuthLayout
-      title="Create your account"
-      subtitle="Start your collaborative learning experience."
+      title="Begin your journey"
+      subtitle="Join the cosmos of seekers and mentors."
     >
       <form onSubmit={handleRegister} className="space-y-4">
-        {/* Role toggle */}
-        <div className="flex bg-canvas rounded-md p-0.5 gap-0.5">
+        <div className="flex bg-surface rounded-lg p-0.5 gap-0.5 border border-border">
           <button
             type="button"
             onClick={() => setRole('student')}
-            className={`flex-1 py-2 text-xs font-semibold rounded transition-all ${
-              role === 'student' ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text-secondary'
+            className={`flex-1 py-2.5 text-xs font-semibold rounded-md transition-all ${
+              role === 'student'
+                ? 'bg-primary text-canvas'
+                : 'text-text-muted hover:text-text-secondary'
             }`}
           >
-            Student
+            Seeker
           </button>
           <button
             type="button"
             onClick={() => setRole('mentor')}
-            className={`flex-1 py-2 text-xs font-semibold rounded transition-all ${
-              role === 'mentor' ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text-secondary'
+            className={`flex-1 py-2.5 text-xs font-semibold rounded-md transition-all ${
+              role === 'mentor'
+                ? 'bg-primary text-canvas'
+                : 'text-text-muted hover:text-text-secondary'
             }`}
           >
             Mentor
@@ -132,7 +135,8 @@ export const RegisterPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-text-muted hover:text-text transition-colors rounded-md"
+              aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -140,25 +144,20 @@ export const RegisterPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="bg-error-light text-error p-3 rounded-md text-sm font-medium border border-error/10 animate-fade-in">
+          <div className="bg-error-light text-error p-3 rounded-lg text-sm font-medium border border-error/10 animate-fade-in">
             {error}
           </div>
         )}
 
-        <button
-          disabled={loading}
-          className="btn-primary w-full py-2.5 mt-2"
-        >
+        <button disabled={loading} className="btn-primary w-full py-2.5 mt-2">
           {loading ? <OrbitalLoader variant="button" /> : (
-            <>
-              Create account <ArrowRight size={16} />
-            </>
+            <>Create account <ArrowRight size={16} /></>
           )}
         </button>
 
         <p className="text-center text-sm text-text-secondary pt-2">
-          Already have an account?{' '}
-          <Link to="/login" className="text-primary font-semibold hover:underline">Sign in</Link>
+          Already part of the cosmos?{' '}
+          <Link to="/login" className="text-primary font-semibold hover:text-primary-hover transition-colors">Sign in</Link>
         </p>
       </form>
     </AuthLayout>
