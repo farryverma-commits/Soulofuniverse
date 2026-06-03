@@ -62,7 +62,7 @@ The interface now lives in deep space: a dark cosmic canvas with starlight gold 
 
 ## Visual Foundation
 
-- **Palette commitment level**: Whisper. Gold primary on deep space surfaces. Color is rare enough to mean something. Purple accent deepens the cosmic feel.
+- **Palette commitment level**: Whisper. Gold primary on deep space surfaces. Color is rare enough to mean something. Purple accent deepens the cosmic feel. **Dual-theme**: dark (default) and light, toggled via sidebar button. Light theme swaps canvas to `#F8FAFC`, surfaces to white, and text to near-black. Conferencing UI stays dark in both themes.
 - **Border radius**: 8-16px for components, 14px for cards, 24px for modals and hero sections. Round but grounded.
 - **Shadows**: Subtle glow (`box-shadow` tinted with primary gold at 3% opacity). Depth from tonal shifts, not heavy shadows.
 - **Motion**: Subtle. Slide-up entrances, scale-on-active for buttons, hover color transitions. Gold glow on primary button hover. Orbital loading animations with multi-ring spins.
