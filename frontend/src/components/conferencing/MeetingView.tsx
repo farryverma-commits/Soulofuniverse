@@ -15,6 +15,7 @@ import {
   useRoomContext,
   useTrackToggle,
   useTrackRefContext,
+  useParticipants,
 } from "@livekit/components-react";
 import { Track, DataPacket_Kind } from "livekit-client";
 //import "@livekit/components-styles";
@@ -102,7 +103,7 @@ function MyVideoConference({
 }) {
   const [layout, setLayout] = useState<"grid" | "speaker">("speaker");
   const { localParticipant } = useLocalParticipant();
-  const { metadata } = useParticipantInfo(localParticipant);
+  const { metadata } = useParticipantInfo();
   const { chatMessages, send: sendChatHook } = useChat();
   const room = useRoomContext();
 
@@ -155,8 +156,47 @@ function MyVideoConference({
   >("chat");
   const [isRecording, setIsRecording] = useState(false);
   const [egressId, setEgressId] = useState<string | null>(null);
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  // Restore recording state from DB on mount (handles page refresh mid-recording)
+  useEffect(() => {
+    if (!isMentor) return;
+    const restoreRecordingState = async () => {
+      const { data } = await supabase
+        .from("session_recordings")
+        .select("egress_id, status, started_at")
+        .eq("session_id", sessionId)
+        .in("status", ["starting", "recording"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (data) {
+        setIsRecording(true);
+        setEgressId(data.egress_id);
+        setRecordingStartTime(new Date(data.started_at).getTime());
+      }
+    };
+    restoreRecordingState();
+  }, [sessionId, isMentor]);
+
+  // Recording duration timer
+  useEffect(() => {
+    if (!isRecording || !recordingStartTime) {
+      setRecordingDuration("00:00");
+      return;
+    }
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+      const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
+      const secs = String(elapsed % 60).padStart(2, "0");
+      setRecordingDuration(`${mins}:${secs}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRecording, recordingStartTime]);
 
   // Handle window resize for mobile detection and auto-close sidebar when transitioning from desktop to mobile
   useEffect(() => {
@@ -219,7 +259,7 @@ function MyVideoConference({
   const isMutedByMentor = !!parsedMetadata.isMutedByMentor;
   const canSpeak = isMentor || (!!parsedMetadata.canSpeak && !isMutedByMentor);
 
-  const { participants } = useTracks(); // useTracks or useParticipants to get all remote participants
+  const allParticipants = useParticipants();
 
   useEffect(() => {
     console.log("Permissions updated:", {
@@ -235,8 +275,8 @@ function MyVideoConference({
 
       // Check mentor's metadata for global mute or session end
       // Look through all participants to find the mentor
-      const allParticipants = [localParticipant, ...room.participants.values()];
-      const mentor = allParticipants.find((p) => {
+      const allP = [localParticipant, ...allParticipants];
+      const mentor = allP.find((p) => {
         try {
           const meta = JSON.parse(p.metadata || "{}");
           return meta.role === "mentor" || p.identity === mentorId;
@@ -284,7 +324,7 @@ function MyVideoConference({
     mentorId,
     localParticipant,
     sessionStatus,
-    participants,
+    allParticipants,
   ]);
 
   const toggleHand = async () => {
@@ -397,45 +437,58 @@ function MyVideoConference({
       data: { session: authSession },
     } = await supabase.auth.getSession();
 
-    if (isRecording) {
-      await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authSession?.access_token}`,
+    try {
+      if (isRecording) {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authSession?.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              action: "stop_recording",
+              egress_id: egressId,
+            }),
           },
-          body: JSON.stringify({
-            session_id: sessionId,
-            action: "stop_recording",
-            egress_id: egressId,
-          }),
-        },
-      );
-      setIsRecording(false);
-      setEgressId(null);
-    } else {
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authSession?.access_token}`,
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Unknown error" }));
+          console.error("Failed to stop recording:", err.error);
+          return;
+        }
+        setIsRecording(false);
+        setEgressId(null);
+        setRecordingStartTime(null);
+      } else {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authSession?.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              action: "start_recording",
+            }),
           },
-          body: JSON.stringify({
-            session_id: sessionId,
-            action: "start_recording",
-          }),
-        },
-      );
-
-      if (res.ok) {
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Unknown error" }));
+          console.error("Failed to start recording:", err.error);
+          return;
+        }
         const data = await res.json();
         setIsRecording(true);
         setEgressId(data.egress_id);
+        setRecordingStartTime(Date.now());
       }
+    } catch (err) {
+      console.error("Recording toggle failed:", err);
     }
   };
 
@@ -497,7 +550,7 @@ function MyVideoConference({
     return tracks.filter(
       (t) =>
         t.source === Track.Source.Camera &&
-        t.trackSid !== mainSpeakerTrack.trackSid,
+        t.publication?.trackSid !== mainSpeakerTrack?.publication?.trackSid,
     );
   }, [tracks, mainSpeakerTrack]);
 
@@ -515,7 +568,8 @@ function MyVideoConference({
     .filter((t) => t.participant?.isSpeaking)
     .sort(
       (a, b) =>
-        (b.participant?.lastSpokeAt || 0) - (a.participant?.lastSpokeAt || 0),
+        (b.participant?.lastSpokeAt?.getTime() || 0) -
+        (a.participant?.lastSpokeAt?.getTime() || 0),
     );
 
   // Determine main focus: Screen Share > Mentor
@@ -554,7 +608,7 @@ function MyVideoConference({
               <div className="bg-red-600/80 backdrop-blur-md px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-red-400/20 flex items-center gap-2 shadow-2xl">
                 <CircleDot className="w-3 h-3 text-white animate-pulse" />
                 <span className="text-[9px] md:text-[11px] font-black text-white uppercase tracking-[0.2em]">
-                  Rec
+                  Rec {recordingDuration}
                 </span>
               </div>
             )}
@@ -769,7 +823,7 @@ function MyVideoConference({
                             </div>
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-gray-200">
-                                Record Session
+                                Record Session {isRecording ? recordingDuration : ""}
                               </span>
                               <span className="text-[10px] text-gray-500">
                                 {isRecording
@@ -969,7 +1023,7 @@ function MyVideoConference({
                           className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : "text-gray-100"}`}
                         />
                       }
-                      label={isRecording ? "Recording" : "Record"}
+                      label={isRecording ? `Rec ${recordingDuration}` : "Record"}
                       isActive={isRecording}
                       activeColor="text-red-500"
                     />

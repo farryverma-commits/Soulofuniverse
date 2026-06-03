@@ -149,13 +149,43 @@ Maintains logs of meeting events (joins, leaves, raises hand, errors) for debugg
 | :--- | :--- | :--- |
 | `id` | `uuid` (PK) | Unique identifier. |
 | `session_id` | `uuid` (FK) | References `group_sessions.id`. |
-| `event_type` | `text` | e.g., `participant_joined`, `chat_saved`, `recording_started`, `error`. |
+| `event_type` | `text` | e.g., `participant_joined`, `chat_saved`, `recording_started`, `recording_stopped`, `error`. |
 | `payload` | `jsonb` | Additional context and metadata about the event. |
 | `created_at` | `timestamptz` | Timestamp of the event. |
 
 **RLS Rules:**
 - `Mentor view`: Mentors can `SELECT` logs for their own sessions.
 - `Insert`: Managed via Service Role in Edge Functions and LiveKit Webhooks.
+
+---
+
+### 9. `session_recordings`
+Stores metadata for LiveKit Egress recordings. Each recording corresponds to a single egress session.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `uuid` (PK) | Unique identifier (default: `gen_random_uuid()`). |
+| `session_id` | `uuid` (FK) | References `group_sessions.id`. ON DELETE CASCADE. |
+| `egress_id` | `text` | LiveKit Egress ID for this recording. Nullable until egress starts. |
+| `status` | `text` | `starting`, `recording`, `uploading`, `completed`, or `failed`. |
+| `file_path` | `text` | Server filesystem path (e.g., `/recordings/{session_id}/{id}.mp4`). |
+| `file_url` | `text` | Playback URL for the recording. |
+| `file_size` | `bigint` | File size in bytes. |
+| `duration_secs` | `integer` | Recording duration in seconds. |
+| `started_at` | `timestamptz` | When recording started. |
+| `completed_at` | `timestamptz` | When egress finished processing. |
+| `error_message` | `text` | Error details if status is `failed`. |
+| `created_at` | `timestamptz` | Row creation timestamp. |
+| `updated_at` | `timestamptz` | Last update timestamp. |
+
+**Indexes:**
+- `idx_session_recordings_session_id`: B-tree on `session_id`.
+- `idx_session_recordings_egress_id`: B-tree on `egress_id`.
+
+**RLS Rules:**
+- `Mentors can view their session recordings`: `SELECT` where mentor owns the session.
+- `Admins can view all recordings`: `SELECT` where user role is `admin`.
+- `Insert/Update`: Managed via Service Role in Edge Functions.
 
 ---
 
