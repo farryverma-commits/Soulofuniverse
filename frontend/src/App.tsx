@@ -1,13 +1,22 @@
 import React from 'react'
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { Home, Calendar, BookOpen, Shield, LogOut, User, Sparkles } from 'lucide-react'
+import { Home, Calendar, BookOpen, Shield, LogOut, User, Sparkles, Sun, Moon } from 'lucide-react'
 import { useAuth } from './hooks/useAuth'
+import { ThemeProvider, useTheme } from './hooks/useTheme'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { supabase } from './services/supabaseClient'
 import { OrbitalLoader } from './components/OrbitalLoader'
 
 function App() {
+  return (
+    <ThemeProvider>
+      <AppRoutes />
+    </ThemeProvider>
+  )
+}
+
+function AppRoutes() {
   const { user, loading, role } = useAuth()
 
   if (loading) {
@@ -39,6 +48,7 @@ import { MeetingPage } from './features/conferencing/MeetingPage'
 
 function DashboardLayout({ user, role }: { user: any; role: any }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false)
+  const { theme, toggleTheme } = useTheme()
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut()
@@ -71,14 +81,14 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
 
       {/* Desktop Sidebar */}
       <nav className="nav-sidebar" aria-label="Main navigation">
-        <div className="px-5 py-6 border-b border-white/[0.04]">
+        <div className="px-5 py-6" style={{ borderBottom: '1px solid var(--color-nav-border)' }}>
           <Link to="/" className="flex items-center gap-3 group">
             <img
               src="/images/logo soul of universe.png"
               alt="Soul of Universe"
               className="w-9 h-9 rounded-lg object-contain"
             />
-            <span className="text-sm font-bold text-white tracking-tight group-hover:text-primary/80 transition-colors">
+            <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-nav-text-brand)' }}>
               Soul of Universe
             </span>
           </Link>
@@ -90,13 +100,21 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           ))}
         </div>
 
-        <div className="px-3 py-4 border-t border-white/[0.04]">
+        <div className="px-3 py-4" style={{ borderTop: '1px solid var(--color-nav-border)' }}>
+          <button
+            onClick={toggleTheme}
+            className="nav-item w-full mb-3"
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          </button>
           <div className="flex items-center gap-3 px-3 py-2 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-white/[0.06] flex items-center justify-center text-white/30">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--color-nav-icon-bg)', color: 'var(--color-nav-text)' }}>
               <User size={16} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-white/50 truncate">{user?.email}</p>
+              <p className="text-xs font-medium truncate" style={{ color: 'var(--color-nav-text-hover)' }}>{user?.email}</p>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-primary/50">{role}</p>
             </div>
           </div>
@@ -123,11 +141,15 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
       </div>
 
       {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-nav/95 backdrop-blur-md border-t border-white/[0.04] z-50 px-3 py-2 flex justify-around">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 backdrop-blur-md z-50 px-3 py-2 flex justify-around items-center" style={{ background: 'color-mix(in srgb, var(--color-nav) 95%, transparent)', borderTop: '1px solid var(--color-nav-border)' }}>
         {navItems.map(item => (
           <MobileNavLink key={item.to} to={item.to} icon={item.icon} label={item.label} />
         ))}
-        <button onClick={confirmLogout} className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-white/50 transition-colors">
+        <button onClick={toggleTheme} className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-text-secondary transition-colors" aria-label="Toggle theme">
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          <span className="text-[10px] font-semibold">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+        </button>
+        <button onClick={confirmLogout} className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-text-secondary transition-colors">
           <LogOut size={20} />
           <span className="text-[10px] font-semibold">Exit</span>
         </button>
@@ -258,7 +280,7 @@ function HomePage({ user, role }: { user: any; role: any }) {
             <Sparkles size={16} className="text-primary" />
             <span className="text-xs font-semibold text-primary/70 uppercase tracking-wider">Continue your journey</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 tracking-tight">
+          <h1 className="text-2xl md:text-3xl font-bold text-text mb-2 tracking-tight">
             Welcome back, Seeker
           </h1>
           <p className="text-text-secondary text-sm max-w-md">
@@ -276,7 +298,7 @@ function HomePage({ user, role }: { user: any; role: any }) {
             <p className="text-sm text-text-secondary font-medium mb-1">
               {new Date(upcomingSession.start_time).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </p>
-            <p className="text-xl font-bold text-white mb-5">
+            <p className="text-xl font-bold text-text mb-5">
               With {upcomingSession.mentor?.full_name || 'Mentor'}
             </p>
             <Link
