@@ -77,6 +77,7 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Admin Dashboard | In Progress | Stats, logs, infrastructure health |
 | Session Chat | Built | Persisted chat history via `session_chats` |
 | Meeting Logs | Built | Event tracking (joins, leaves, errors) via `meeting_logs` |
+| Session Recording | Built | LiveKit Egress with FilesysUpload, mentor+admin access, `session_recordings` table |
 
 ## Common Workflows
 - **Adding a new table:** Create migration in `supabase/`, update RLS, update `frontend/DBSchema.md`
