@@ -57,8 +57,9 @@ See @brief.md for the full design brief (visual identity, composition lanes, voi
 - **Voice:** Professional, contemplative. Avoid corporate/playful SaaS tone.
 
 ## Architecture Notes
-- Auth flow: Supabase Auth → `profiles` table trigger (`handle_new_user()`) auto-creates profile on signup
+- Auth flow: Supabase Auth → `profiles` table trigger (`handle_new_user()`) auto-creates profile on signup with `pending` status → Admin approval required via `approve_user()` function → User can access platform only after approval
 - Roles: `student` (default), `mentor`, `admin` — enforced via RLS policies
+- User approval: New registrations require admin approval. `user_approval_requests` table tracks approval workflow. RLS policies block unapproved users from accessing protected resources.
 - Conferencing: LiveKit rooms with waiting room pattern (`session_participants` table)
 - Video library: HLS playback via Video.js with quality selector
 - Scheduler: Recurring weekly availability slots (`mentor_availability` table)
@@ -69,12 +70,13 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Feature | Status | Notes |
 |---|---|---|
 | Auth (Login/Register) | Built | Supabase Auth, auto profile creation via trigger |
+| User Approval System | Built | Admin approval required for new registrations, pending/rejected screens |
 | Student Dashboard | Built | See next session, join group rooms, browse upcoming |
 | Mentor Scheduler | Built | Recurring weekly availability slots |
 | Booking System | Built | 1-on-1 appointments between students and mentors |
 | Video Library | Built | HLS playback via Video.js with quality selector |
 | Conferencing | Built | LiveKit rooms with waiting room pattern |
-| Admin Dashboard | In Progress | Stats, logs, infrastructure health |
+| Admin Dashboard | In Progress | Stats, logs, infrastructure health, user approval management |
 | Session Chat | Built | Persisted chat history via `session_chats` |
 | Meeting Logs | Built | Event tracking (joins, leaves, errors) via `meeting_logs` |
 | Session Recording | Built | LiveKit Egress with FilesysUpload, mentor+admin access, `session_recordings` table |

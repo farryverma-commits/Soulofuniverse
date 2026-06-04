@@ -5,6 +5,8 @@ import { useAuth } from './hooks/useAuth'
 import { ThemeProvider, useTheme } from './hooks/useTheme'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
+import { PendingApprovalPage } from './features/auth/PendingApprovalPage'
+import { RejectedPage } from './features/auth/RejectedPage'
 import { supabase } from './services/supabaseClient'
 import { OrbitalLoader } from './components/OrbitalLoader'
 
@@ -17,10 +19,20 @@ function App() {
 }
 
 function AppRoutes() {
-  const { user, loading, role } = useAuth()
+  const { user, loading, role, status } = useAuth()
 
   if (loading) {
     return <OrbitalLoader variant="page" label="Soul of Universe" />
+  }
+
+  // If user is logged in but pending approval, show pending page
+  if (user && status === 'pending') {
+    return <PendingApprovalPage />
+  }
+
+  // If user is logged in but rejected, show rejected page
+  if (user && status === 'rejected') {
+    return <RejectedPage />
   }
 
   return (
