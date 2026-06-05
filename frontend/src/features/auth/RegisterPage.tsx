@@ -50,7 +50,7 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <AuthLayout title="Begin your journey" subtitle="Join the cosmos.">
+    <AuthLayout title="Begin your journey" subtitle="">
       <form onSubmit={handleRegister} className="space-y-5">
         {/* Role badge */}
         <div className="flex items-center gap-2.5 px-4 py-2.5 bg-accent/5 border border-accent/10 rounded-xl">
@@ -160,7 +160,10 @@ export const RegisterPage: React.FC = () => {
           </div>
         )}
 
-        <button disabled={loading} className="btn-primary w-full py-3 mt-2 text-sm">
+        <button
+          disabled={loading}
+          className="btn-primary w-full py-3 mt-2 text-sm"
+        >
           {loading ? (
             <OrbitalLoader variant="button" />
           ) : (

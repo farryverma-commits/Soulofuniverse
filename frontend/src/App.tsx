@@ -1,12 +1,13 @@
 import React from 'react'
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { Home, Calendar, BookOpen, Shield, LogOut, User, Sparkles, Sun, Moon } from 'lucide-react'
+import { Home, Calendar, BookOpen, Shield, LogOut, User, Sparkles, Sun, Moon, Settings } from 'lucide-react'
 import { useAuth } from './hooks/useAuth'
 import { ThemeProvider, useTheme } from './hooks/useTheme'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { PendingApprovalPage } from './features/auth/PendingApprovalPage'
 import { RejectedPage } from './features/auth/RejectedPage'
+import { ProfileSettingsPage } from './features/auth/ProfileSettingsPage'
 import { supabase } from './services/supabaseClient'
 import { OrbitalLoader } from './components/OrbitalLoader'
 
@@ -121,7 +122,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
           </button>
-          <div className="flex items-center gap-3 px-3 py-2 mb-3">
+          <Link to="/profile" className="flex items-center gap-3 px-3 py-2 mb-3 rounded-lg hover:bg-surface-raised transition-colors cursor-pointer">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--color-nav-icon-bg)', color: 'var(--color-nav-text)' }}>
               <User size={16} />
             </div>
@@ -129,7 +130,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
               <p className="text-xs font-medium truncate" style={{ color: 'var(--color-nav-text-hover)' }}>{user?.email}</p>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-primary/50">{role}</p>
             </div>
-          </div>
+          </Link>
           <button
             onClick={confirmLogout}
             className="nav-item w-full"
@@ -148,6 +149,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
             <Route path="/library" element={<VideoLibraryPage />} />
             <Route path="/scheduler" element={role === 'student' ? <BookingPage /> : <Navigate to="/" />} />
             <Route path="/admin" element={role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
+            <Route path="/profile" element={<ProfileSettingsPage />} />
           </Routes>
         </main>
       </div>
@@ -157,6 +159,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
         {navItems.map(item => (
           <MobileNavLink key={item.to} to={item.to} icon={item.icon} label={item.label} />
         ))}
+        <MobileNavLink to="/profile" icon={<Settings size={20} />} label="Profile" />
         <button onClick={toggleTheme} className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-text-secondary transition-colors" aria-label="Toggle theme">
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           <span className="text-[10px] font-semibold">{theme === 'dark' ? 'Light' : 'Dark'}</span>
