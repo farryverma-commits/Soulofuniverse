@@ -58,6 +58,7 @@ See @brief.md for the full design brief (visual identity, composition lanes, voi
 
 ## Architecture Notes
 - Auth flow: Supabase Auth → `profiles` table trigger (`handle_new_user()`) auto-creates profile on signup with `pending` status → Admin approval required via `approve_user()` function → User can access platform only after approval
+- Password reset: Admins can reset student/mentor passwords via `UserManagement` (calls `admin-reset-password` edge function using service role). Users can change their own password via `/profile` settings page.
 - Roles: `student` (default), `mentor`, `admin` — enforced via RLS policies
 - User approval: New registrations require admin approval. `user_approval_requests` table tracks approval workflow. RLS policies block unapproved users from accessing protected resources.
 - Conferencing: LiveKit rooms with waiting room pattern (`session_participants` table)
@@ -80,6 +81,8 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Session Chat | Built | Persisted chat history via `session_chats` |
 | Meeting Logs | Built | Event tracking (joins, leaves, errors) via `meeting_logs` |
 | Session Recording | Built | LiveKit Egress with FilesysUpload, mentor+admin access, `session_recordings` table |
+| Password Reset (Admin) | Built | Admin resets student/mentor passwords via `admin-reset-password` edge function |
+| Password Change (Self) | Built | Users change own password via `/profile` settings page |
 
 ## Common Workflows
 - **Adding a new table:** Create migration in `supabase/`, update RLS, update `frontend/DBSchema.md`
