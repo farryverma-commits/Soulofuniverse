@@ -25,7 +25,10 @@ export const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [resetLoadingId, setResetLoadingId] = useState<string | null>(null);
-  const [resetConfirm, setResetConfirm] = useState<{ userId: string; userName: string } | null>(null);
+  const [resetConfirm, setResetConfirm] = useState<{
+    userId: string;
+    userName: string;
+  } | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -108,7 +111,11 @@ export const UserManagement: React.FC = () => {
       <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <label htmlFor="user-search" className="sr-only">
+            Search users
+          </label>
           <input
+            id="user-search"
             type="text"
             placeholder="Search by name or email..."
             className="input pl-10 text-sm"
@@ -233,16 +240,26 @@ export const UserManagement: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-text">Reset password?</h3>
                 <p className="text-xs text-text-secondary">
-                  This will reset <span className="font-semibold text-text">{resetConfirm.userName}</span>'s password
-                  to the default. They will need the new password to sign in.
+                  This will reset{" "}
+                  <span className="font-semibold text-text">
+                    {resetConfirm.userName}
+                  </span>
+                  's password to the default. They will need the new password to
+                  sign in.
                 </p>
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setResetConfirm(null)} className="btn-secondary flex-1 text-xs">
+              <button
+                onClick={() => setResetConfirm(null)}
+                className="btn-secondary flex-1 text-xs"
+              >
                 Cancel
               </button>
-              <button onClick={confirmReset} className="btn-danger flex-1 text-xs">
+              <button
+                onClick={confirmReset}
+                className="btn-danger flex-1 text-xs"
+              >
                 Reset password
               </button>
             </div>

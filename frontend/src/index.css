@@ -651,7 +651,8 @@
 }
 
 .lk-chat-form-input:focus {
-  outline: none !important;
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: -1px !important;
   border-color: var(--color-primary) !important;
 }
 
@@ -750,9 +751,32 @@
   }
 }
 
+/* Touch device: reveal hover-dependent controls */
+@media (hover: none) and (pointer: coarse) {
+  .group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+  .lg\:group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+  .group-hover\:scale-100 {
+    transform: scale(1) !important;
+  }
+}
+
 /* Safe area for notched devices */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .md\:hidden.fixed.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Sidebar safe area on notched devices */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .nav-sidebar {
+    padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
 }

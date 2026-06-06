@@ -87,10 +87,11 @@ export const CreateMentor: React.FC = () => {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-text">Full name</label>
+                  <label htmlFor="mentor-full-name" className="text-xs font-semibold text-text">Full name</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                     <input
+                      id="mentor-full-name"
                       type="text"
                       required
                       className="input pl-10"
@@ -102,10 +103,11 @@ export const CreateMentor: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-text">Email address</label>
+                  <label htmlFor="mentor-email" className="text-xs font-semibold text-text">Email address</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                     <input
+                      id="mentor-email"
                       type="email"
                       required
                       className="input pl-10"
@@ -117,10 +119,11 @@ export const CreateMentor: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-text">Password</label>
+                  <label htmlFor="mentor-password" className="text-xs font-semibold text-text">Password</label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                     <input
+                      id="mentor-password"
                       type="password"
                       required
                       className="input pl-10"
@@ -132,10 +135,11 @@ export const CreateMentor: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-text">Date of birth (optional)</label>
+                  <label htmlFor="mentor-dob" className="text-xs font-semibold text-text">Date of birth (optional)</label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                     <input
+                      id="mentor-dob"
                       type="date"
                       className="input pl-10"
                       value={dob}

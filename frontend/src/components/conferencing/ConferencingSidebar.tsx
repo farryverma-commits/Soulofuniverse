@@ -119,7 +119,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className="w-full md:w-80 bg-surface-dark border-l border-white/5 flex flex-col h-full overflow-x-hidden absolute inset-0 z-40 md:relative md:z-auto">
+    <div className="w-full md:w-80 bg-[#0F0F10] border-l border-white/5 flex flex-col h-full overflow-x-hidden absolute inset-0 z-40 md:relative md:z-auto">
       <div className="flex border-b border-white/5 bg-black/20">
         <TabButton active={activeTab === 'chat'} onClick={() => onTabChange('chat')} icon={<MessageSquare className="w-4 h-4" />} label="Chat" />
         <TabButton active={activeTab === 'participants'} onClick={() => onTabChange('participants')} icon={<Users className="w-4 h-4" />} label="Users" />

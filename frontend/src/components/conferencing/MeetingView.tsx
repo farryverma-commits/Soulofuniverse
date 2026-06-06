@@ -669,7 +669,7 @@ function MyVideoConference({
 
           {/* Conference Control Bar */}
           {isMobile && !showSidebar ? (
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-3.5 animate-in slide-in-from-bottom-8 duration-500">
+            <div className="fixed bottom-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-3.5 animate-in slide-in-from-bottom-8 duration-500">
               <MediaControl
                 source={Track.Source.Camera}
                 disabled={!canSpeak}
