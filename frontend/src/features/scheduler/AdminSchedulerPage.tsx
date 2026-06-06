@@ -71,7 +71,6 @@ export const AdminSchedulerPage: React.FC = () => {
   const [showAllSessions, setShowAllSessions] = useState(false);
 
   const openGroupModal = () => {
-    setSessionError(null);
     setNewGroup({
       title: "",
       description: "",
@@ -185,32 +184,26 @@ export const AdminSchedulerPage: React.FC = () => {
       .order("day_of_week", { ascending: true })
       .order("start_time", { ascending: true });
     if (!error && data) setAvailability(data);
-    const handleAddSlot = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!user) return;
+    setLoading(false);
+  };
 
-      if (newSlot.start_time >= newSlot.end_time) {
-        setSessionError("End time must be after start time");
-        return;
-      }
-
-      setSaving(true);
-      const { error } = await supabase.from("mentor_availability").insert([
-        {
-          mentor_id: user.id,
-          day_of_week: newSlot.day_of_week,
-          start_time: newSlot.start_time,
-          end_time: newSlot.end_time,
-        },
-      ]);
-      if (!error) {
-        setIsModalOpen(false);
-        fetchAvailability();
-      } else {
-        setSessionError(error.message || "Failed to add availability slot");
-      }
-      setSaving(false);
-    };
+  const handleAddSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    const { error } = await supabase.from("mentor_availability").insert([
+      {
+        mentor_id: user.id,
+        day_of_week: newSlot.day_of_week,
+        start_time: newSlot.start_time,
+        end_time: newSlot.end_time,
+      },
+    ]);
+    if (!error) {
+      setIsModalOpen(false);
+      fetchAvailability();
+    }
+    setSaving(false);
   };
 
   const handleDeleteSlot = async (id: string) => {
