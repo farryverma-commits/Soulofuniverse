@@ -132,7 +132,9 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
         onSubmit={handleSend}
         className="p-3 pb-safe border-t border-white/5 bg-black/20 flex gap-2"
       >
+        <label htmlFor="chat-message-input" className="sr-only">Chat message</label>
         <input
+          id="chat-message-input"
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -144,7 +146,7 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
           placeholder="Type a message..."
           enterKeyHint="send"
           autoComplete="off"
-          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-primary transition-colors"
+          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-primary focus:outline-2 focus:outline-primary focus:-outline-offset-1 transition-colors"
         />
         <button
           type="submit"

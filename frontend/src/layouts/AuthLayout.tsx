@@ -21,7 +21,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           <div className="flex items-center gap-2.5 mb-14">
             <img
               src="/images/logo soul of universe.png"
-              alt=""
+              alt="Soul of Universe"
               className="w-7 h-7 rounded-lg object-contain opacity-80"
             />
             <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-text-muted">
