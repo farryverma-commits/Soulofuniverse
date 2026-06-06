@@ -64,6 +64,39 @@
   --color-nav-icon-bg: rgba(15, 23, 42, 0.06);
 }
 
+/* Dark theme overrides (used to force dark mode on scoped components like Auth pages) */
+[data-theme="dark"] {
+  --color-canvas: #0A0A14;
+  --color-surface: #12121F;
+  --color-surface-raised: #18182A;
+  --color-text: #F0EDF5;
+  --color-text-secondary: #8B87A3;
+  --color-text-muted: #5C5873;
+  --color-border: #1E1C2E;
+  --color-border-strong: #2D2A3F;
+  --color-primary: #D4A853;
+  --color-primary-hover: #C09840;
+  --color-primary-light: rgba(212, 168, 83, 0.1);
+  --color-accent: #7B5EA8;
+  --color-accent-light: rgba(123, 94, 168, 0.12);
+  --color-success: #3BAF7A;
+  --color-success-light: rgba(59, 175, 122, 0.1);
+  --color-error: #E04E4E;
+  --color-error-light: rgba(224, 78, 78, 0.1);
+  --color-warning: #D4A843;
+  --color-warning-light: rgba(212, 168, 67, 0.1);
+  --color-disabled: #2D2A3F;
+  --color-nav: #060610;
+  --color-nav-hover: #0E0E1A;
+  --color-nav-active: #161628;
+  --color-nav-text: rgba(255, 255, 255, 0.35);
+  --color-nav-text-hover: rgba(255, 255, 255, 0.6);
+  --color-nav-text-brand: #FFFFFF;
+  --color-nav-border: rgba(255, 255, 255, 0.04);
+  --color-nav-icon-bg: rgba(255, 255, 255, 0.06);
+}
+
+
 @layer base {
   *,
   *::before,

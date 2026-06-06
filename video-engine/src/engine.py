@@ -129,19 +129,28 @@ def handle_video_pipeline(input_path):
         cpu_cores = str(max(1, (os.cpu_count() or 4) // 2)) 
         
         cmd = [
-            'ffmpeg', '-y', '-i', input_path,
-            '-threads', cpu_cores,
-            '-filter_complex', '[0:v]split=2[v1][v2];[v1]scale=640:360[v1out];[v2]scale=1280:720[v2out]',
-            '-map', '[v1out]', '-map', '0:a', '-map', '[v2out]', '-map', '0:a', '-map', '[v3out]', '-map', '0:a', '-map', '[v4out]', '-map', '0:a',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-c:a', 'aac', '-b:a', '128k',
-            '-g', '48', '-keyint_min', '48', '-sc_threshold', '0',
-            '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod',
-            '-hls_segment_filename', os.path.join(video_folder, '%v_%03d.ts'),
-            '-master_pl_name', 'master.m3u8',
-            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2 v:3,a:3',
-            os.path.join(video_folder, 'v%v.m3u8')
-        ]
+    'ffmpeg', '-y', '-i', input_path,
+    '-threads', cpu_cores,
+    
+    # 1. Split and scale into 2 outputs
+    '-filter_complex', '[0:v]split=2[v1][v2];[v1]scale=640:360[v1out];[v2]scale=1280:720[v2out]',
+    
+    # 2. Map 2 video variations and their audio streams
+    '-map', '[v1out]', '-map', '0:a',
+    '-map', '[v2out]', '-map', '0:a',
+
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-g', '48', '-keyint_min', '48', '-sc_threshold', '0',
+    '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod',
+    # ENHANCEMENT: Place variant segments into clear variant subfolders
+    '-hls_segment_filename', os.path.join(video_folder, 'stream_%v', 'data%03d.ts'),
+    '-master_pl_name', 'master.m3u8',
+    '-var_stream_map', 'v:0,a:0 v:1,a:1',
+
+    # ENHANCEMENT: Put variant m3u8 manifests inside matching variant subfolders
+    os.path.join(video_folder, 'stream_%v', 'manifest.m3u8')
+]
         
         subprocess.run(cmd, check=True)
         logging.info(f"✅ Transcode complete: {video_id}")

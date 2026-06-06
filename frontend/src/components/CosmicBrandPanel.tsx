@@ -27,13 +27,25 @@ export const CosmicBrandPanel: React.FC = () => {
       <img
         src="/images/IMG_1732.PNG"
         alt=""
-        className="absolute inset-0 w-full h-full object-cover opacity-[0.12] scale-110"
+        className="absolute inset-0 w-full h-full object-cover opacity-[0.08] scale-110"
         style={{ filter: 'saturate(0.6)' }}
       />
 
       {/* Gradient overlays */}
       <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,6,16,0.9), rgba(6,6,16,0.6), rgba(6,6,16,0.95))' }} />
       <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, rgba(123,94,168,0.05), transparent, rgba(212,168,83,0.05))' }} />
+
+      {/* Meditative figure — centered, blended into the void */}
+      <img
+        src="/images/meditative-state.png"
+        alt=""
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[380px] h-[380px] object-contain opacity-[0.22] pointer-events-none select-none"
+        style={{
+          filter: 'saturate(0.5) brightness(0.9)',
+          maskImage: 'radial-gradient(circle at center, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0) 85%)',
+          WebkitMaskImage: 'radial-gradient(circle at center, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0) 85%)',
+        }}
+      />
 
       {/* Subtle radial glow behind logo */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(212,168,83,0.04)_0%,rgba(212,168,83,0.01)_40%,transparent_70%)] blur-3xl" />
