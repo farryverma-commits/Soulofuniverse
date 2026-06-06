@@ -143,11 +143,13 @@ def handle_video_pipeline(input_path):
     '-c:a', 'aac', '-b:a', '128k',
     '-g', '48', '-keyint_min', '48', '-sc_threshold', '0',
     '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod',
-    '-hls_segment_filename', os.path.join(video_folder, '%v_%03d.ts'),
+    # ENHANCEMENT: Place variant segments into clear variant subfolders
+    '-hls_segment_filename', os.path.join(video_folder, 'stream_%v', 'data%03d.ts'),
     '-master_pl_name', 'master.m3u8',
     '-var_stream_map', 'v:0,a:0 v:1,a:1',
 
-    os.path.join(video_folder, 'v%v.m3u8')
+    # ENHANCEMENT: Put variant m3u8 manifests inside matching variant subfolders
+    os.path.join(video_folder, 'stream_%v', 'manifest.m3u8')
 ]
         
         subprocess.run(cmd, check=True)
