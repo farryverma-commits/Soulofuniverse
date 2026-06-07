@@ -820,7 +820,7 @@ export const AdminSchedulerPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-3">
+              {/* <div className="flex gap-3">
                 <label className="flex-1 flex items-center gap-2 cursor-pointer p-3 bg-surface-raised rounded-xl border border-border hover:border-border-strong transition-colors">
                   <input
                     type="checkbox"
@@ -837,11 +837,8 @@ export const AdminSchedulerPage: React.FC = () => {
                     Wait room
                   </span>
                 </label>
-                {/* <label className="flex-1 flex items-center gap-2 cursor-pointer p-3 bg-surface-raised rounded-xl border border-border hover:border-border-strong transition-colors">
-                  <input type="checkbox" checked={newGroup.is_recorded} onChange={(e) => setNewGroup({ ...newGroup, is_recorded: e.target.checked })} className="w-3.5 h-3.5 rounded accent-primary" />
-                  <span className="text-[11px] font-semibold text-text-secondary">Record</span>
-                </label> */}
-              </div>
+                
+              </div> */}
               <button
                 disabled={saving}
                 className="btn-primary w-full py-2.5 mt-1"

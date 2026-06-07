@@ -53,53 +53,54 @@ serve(async (req) => {
     if (sessionError || !session) throw new Error('Session not found')
     if (session.status !== 'live') throw new Response(JSON.stringify({ error: 'Meeting is not live yet' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-    // 2. Check if user is mentor (host)
-    const isMentor = session.mentor_id === user.id
+    // 2. Fetch user role for admin bypass
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, full_name')
+      .eq('id', user.id)
+      .single();
 
-    // 3. If not mentor, check if approved (if required)
+    if (profileError || !profile) throw new Error('Profile not found');
+
+    const isAdmin = profile.role === 'admin';
+    const isMentor = session.mentor_id === user.id || isAdmin;
+
+    // 3. If not mentor/admin, check if approved (if required)
     if (!isMentor && session.require_approval) {
       const { data: participant, error: partError } = await supabaseAdmin
         .from('session_participants')
         .select('status')
         .eq('session_id', session_id)
         .eq('user_id', user.id)
-        .single()
+        .single();
 
       if (partError || participant?.status !== 'approved') {
-        throw new Error('Approval required to join this meeting')
+        throw new Error('Approval required to join this meeting');
       }
     }
 
     // 4. Generate LiveKit token
-    const apiKey = Deno.env.get('LIVEKIT_API_KEY')
-    const apiSecret = Deno.env.get('LIVEKIT_API_SECRET')
-    const livekitUrl = Deno.env.get('LIVEKIT_URL')
+    const apiKey = Deno.env.get('LIVEKIT_API_KEY');
+    const apiSecret = Deno.env.get('LIVEKIT_API_SECRET');
+    const livekitUrl = Deno.env.get('LIVEKIT_URL');
 
     if (!apiKey || !apiSecret || !livekitUrl) {
-      throw new Error('LiveKit configuration missing')
+      throw new Error('LiveKit configuration missing');
     }
-
-    // Get user profile for name
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .single()
 
     const at = new AccessToken(apiKey, apiSecret, {
       identity: user.id,
-      name: profile?.full_name ?? user.email,
-    })
+      name: profile.full_name ?? user.email,
+    });
 
     at.addGrant({
       roomJoin: true,
       room: `session_${session_id}`,
-      canPublish: true, // Allow publishing by default, UI handles mute
+      canPublish: true,
       canSubscribe: true,
       roomAdmin: isMentor,
       canUpdateOwnMetadata: true,
-      canUpdateMetadata: isMentor,
-    })
+    });
 
     const participantToken = await at.toJwt()
 

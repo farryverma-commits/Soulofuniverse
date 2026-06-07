@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Users,
   Video,
@@ -14,6 +15,7 @@ import {
 import { supabase } from "../../services/supabaseClient";
 import { UserApproval } from "./UserApproval";
 import { CreateMentor } from "./CreateMentor";
+import { OrbitalLoader } from "../../components/OrbitalLoader";
 
 interface Stats {
   totalStudents: number;
@@ -29,10 +31,13 @@ export const AdminDashboardPage: React.FC = () => {
     totalSessions: 0,
     activeBookings: 0,
   });
+  const [groupSessions, setGroupSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
 
   useEffect(() => {
     fetchStats();
+    fetchGroupSessions();
   }, []);
 
   const fetchStats = async () => {
@@ -59,6 +64,18 @@ export const AdminDashboardPage: React.FC = () => {
       activeBookings: bookings || 0,
     });
     setLoading(false);
+  };
+
+  const fetchGroupSessions = async () => {
+    setSessionsLoading(true);
+    const { data } = await supabase
+      .from("group_sessions")
+      .select(`*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`)
+      .in("status", ["scheduled", "live"])
+      .order("scheduled_start_time", { ascending: true })
+      .limit(10);
+    setGroupSessions(data || []);
+    setSessionsLoading(false);
   };
 
   return (
@@ -122,50 +139,62 @@ export const AdminDashboardPage: React.FC = () => {
         <UserApproval />
       </div>
 
-      {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="card card-glow p-5">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-text">System logs</h2>
-              <button className="text-xs font-semibold text-primary hover:text-primary-hover transition-colors">Export CSV</button>
-            </div>
-
-            <div className="divide-y divide-border">
-              <LogItem icon={<UserPlus size={14} />} title="New seeker joined" description="jendh@soulofuniverse.com began their journey" time="2 min ago" />
-              <LogItem icon={<Calendar size={14} />} title="Session scheduled" description="Quantum Mechanics with Mentor Sharan" time="15 min ago" />
-              <LogItem icon={<Activity size={14} />} title="LiveKit token generated" description="Session ID: session_99283" time="1 hr ago" />
-              <LogItem icon={<Server size={14} />} title="MediaCMS sync complete" description="Ingested 4 new HLS streams" time="3 hr ago" />
-            </div>
-
-            <button className="w-full mt-4 py-2.5 bg-surface-raised text-text-secondary text-xs font-semibold rounded-lg hover:text-text transition-colors">
-              View full audit trail
-            </button>
-          </div>
+      {/* Group Sessions — admin can monitor and join any session */}
+      <div className="card card-glow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-text">Group Sessions</h2>
+          {!sessionsLoading && (
+            <span className="section-label">{groupSessions.length} sessions</span>
+          )}
         </div>
 
-        <div>
-          <div className="card card-glow p-5">
-            <h2 className="text-sm font-bold text-text mb-5">Infrastructure</h2>
-
-            <div className="space-y-3">
-              <HealthItem label="Supabase Auth & DB" status="Operational" delay="12ms" />
-              <HealthItem label="MediaCMS (Self-Hosted)" status="Operational" delay="45ms" />
-              <HealthItem label="LiveKit SFU" status="Operational" delay="8ms" />
-            </div>
-
-            <div className="mt-5 p-4 bg-surface-raised rounded-xl border border-border">
-              <p className="section-label mb-2">Cloud usage</p>
-              <div className="flex justify-between items-end mb-2.5">
-                <span className="text-2xl font-bold text-text">42%</span>
-                <span className="text-[10px] text-text-muted font-medium">Storage capacity</span>
-              </div>
-              <div className="w-full bg-white/[0.04] h-1.5 rounded-full overflow-hidden">
-                <div className="bg-primary h-full rounded-full" style={{ width: '42%' }} />
-              </div>
-            </div>
+        {sessionsLoading ? (
+          <div className="py-8 flex items-center justify-center">
+            <OrbitalLoader variant="inline" />
           </div>
-        </div>
-      </div> */}
+        ) : groupSessions.length === 0 ? (
+          <p className="text-sm text-text-secondary text-center py-8">
+            No group sessions scheduled.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {groupSessions.map((session) => (
+              <div
+                key={session.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-surface-raised border border-border hover:border-border-strong transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    {session.status === "live" ? (
+                      <span className="badge badge-live">Live</span>
+                    ) : (
+                      <span className="badge badge-primary">Upcoming</span>
+                    )}
+                    <span className="text-xs text-text-muted font-medium">
+                      {new Date(session.scheduled_start_time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-text truncate">
+                    {session.title}
+                  </h3>
+                  <p className="text-xs text-text-secondary">
+                    Mentor: {session.mentor?.full_name || "—"}
+                  </p>
+                </div>
+                <Link
+                  to={`/meeting/${session.id}`}
+                  className="btn-primary text-xs px-4 py-2 shrink-0 ml-3"
+                >
+                  Join
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

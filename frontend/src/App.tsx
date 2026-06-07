@@ -397,10 +397,10 @@ function HomePage({ user, role }: { user: any; role: any }) {
         `,
         )
         .in("status", ["scheduled", "live"])
-        .gte(
-          "scheduled_start_time",
-          new Date(Date.now() - 3600000).toISOString(),
-        )
+        // .gte(
+        //   "scheduled_start_time",
+        //   new Date(Date.now() - 3600000).toISOString(),
+        // )
         .order("scheduled_start_time", { ascending: true })
         .limit(5);
 
