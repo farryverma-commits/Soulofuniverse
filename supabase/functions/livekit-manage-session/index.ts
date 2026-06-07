@@ -57,12 +57,29 @@ serve(async (req) => {
       .from("group_sessions")
       .select("*")
       .eq("id", session_id)
-      .eq("mentor_id", user.id)
       .single();
 
     if (fetchError || !session) {
       console.error("Session fetch error:", fetchError);
       throw new Error("Session not found or access denied");
+    }
+
+    const livekitUrl = Deno.env.get("LIVEKIT_URL") ?? "";
+    const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY") ?? "";
+    const livekitApiSecret = Deno.env.get("LIVEKIT_API_SECRET") ?? "";
+    const recordingBaseUrl = Deno.env.get("RECORDING_BASE_URL") ?? "";
+
+    // Allow admin to manage any session
+    if (session.mentor_id !== user.id) {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+
+      if (!profile || profile.role !== "admin") {
+        throw new Error("Session not found or access denied");
+      }
     }
 
     const livekitUrl = Deno.env.get("LIVEKIT_URL") ?? "";
@@ -141,6 +158,13 @@ serve(async (req) => {
         .from("group_sessions")
         .update({ status: "completed" })
         .eq("id", session_id);
+
+      // Cleanup pending participants — mark as rejected so they don't wait forever
+      await supabaseAdmin
+        .from("session_participants")
+        .update({ status: "rejected" })
+        .eq("session_id", session_id)
+        .eq("status", "pending");
 
       await supabaseAdmin.from("meeting_logs").insert({
         session_id,
