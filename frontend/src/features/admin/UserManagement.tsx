@@ -25,6 +25,8 @@ export const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [resetLoadingId, setResetLoadingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [resetConfirm, setResetConfirm] = useState<{
     userId: string;
     userName: string;
@@ -33,6 +35,16 @@ export const UserManagement: React.FC = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const filteredUsers = users.filter((user) => {
+    if (roleFilter !== "all" && user.role !== roleFilter) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (user.full_name || "").toLowerCase().includes(q) ||
+      user.email.toLowerCase().includes(q)
+    );
+  });
 
   const fetchUsers = async () => {
     const { data, error } = await supabase
@@ -55,6 +67,14 @@ export const UserManagement: React.FC = () => {
     setResetConfirm(null);
     setResetLoadingId(userId);
 
+    const loadingToast = toast.loading(`Resetting ${userName}'s password...`, {
+      style: {
+        background: "#18182A",
+        color: "#F0EDF5",
+        border: "1px solid #D4A853",
+      },
+    });
+
     try {
       const {
         data: { session },
@@ -62,7 +82,15 @@ export const UserManagement: React.FC = () => {
       const accessToken = session?.access_token;
 
       if (!accessToken) {
-        toast.error("Authentication required");
+        toast.dismiss(loadingToast);
+        toast.error("Authentication required", {
+          icon: "🔐",
+          style: {
+            background: "#18182A",
+            color: "#F0EDF5",
+            border: "1px solid #E04E4E",
+          },
+        });
         return;
       }
 
@@ -81,12 +109,36 @@ export const UserManagement: React.FC = () => {
       const result = await res.json();
 
       if (!res.ok) {
-        toast.error(result.error || "Failed to reset password");
+        toast.dismiss(loadingToast);
+        toast.error(result.error || "Failed to reset password", {
+          icon: "🌑",
+          style: {
+            background: "#18182A",
+            color: "#F0EDF5",
+            border: "1px solid #E04E4E",
+          },
+        });
       } else {
-        toast.success(`Password reset for ${userName}`);
+        toast.dismiss(loadingToast);
+        toast.success(`${userName}'s password has been reset.`, {
+          icon: "✨",
+          style: {
+            background: "#18182A",
+            color: "#F0EDF5",
+            border: "1px solid #D4A853",
+          },
+        });
       }
     } catch {
-      toast.error("Failed to reset password");
+      toast.dismiss(loadingToast);
+      toast.error("Failed to reset password", {
+        icon: "🌑",
+        style: {
+          background: "#18182A",
+          color: "#F0EDF5",
+          border: "1px solid #E04E4E",
+        },
+      });
     } finally {
       setResetLoadingId(null);
     }
@@ -100,12 +152,12 @@ export const UserManagement: React.FC = () => {
             User management
           </h1>
           <p className="text-text-secondary text-sm mt-0.5">
-            Oversee the community across the cosmos.
+            Oversee the community.
           </p>
         </div>
-        <button className="btn-primary text-xs py-2">
+        {/* <button className="btn-primary text-xs py-2">
           <UserCircle size={14} /> Export users
-        </button>
+        </button> */}
       </header>
 
       <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
@@ -117,20 +169,26 @@ export const UserManagement: React.FC = () => {
           <input
             id="user-search"
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by name or email..."
             className="input pl-10 text-sm"
           />
         </div>
         <div className="flex gap-2">
-          <select className="input text-xs py-2 pr-8 w-auto">
-            <option>All roles</option>
-            <option>Students</option>
-            <option>Mentors</option>
-            <option>Admins</option>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="input text-xs py-2 pr-8 w-auto"
+          >
+            <option value="all">All roles</option>
+            <option value="student">Students</option>
+            <option value="mentor">Mentors</option>
+            <option value="admin">Admins</option>
           </select>
-          <button className="btn-secondary text-xs py-2 px-3">
+          {/* <button className="btn-secondary text-xs py-2 px-3">
             <Filter size={14} />
-          </button>
+          </button> */}
         </div>
       </div>
 
@@ -148,7 +206,7 @@ export const UserManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {users.map((user) => (
+              {filteredUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="hover:bg-surface-raised transition-colors group"
@@ -217,13 +275,15 @@ export const UserManagement: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {users.length === 0 && !loading && (
+        {filteredUsers.length === 0 && !loading && (
           <div className="py-16 text-center space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-surface-raised border border-border flex items-center justify-center mx-auto">
               <UserCircle className="w-6 h-6 text-text-muted" />
             </div>
             <p className="text-sm text-text-secondary font-medium">
-              No seekers in the cosmos yet.
+              {searchQuery.trim()
+                ? "No seekers match your search."
+                : "No seekers in the cosmos yet."}
             </p>
           </div>
         )}

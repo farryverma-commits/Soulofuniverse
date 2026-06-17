@@ -58,3 +58,4 @@ migration.sql
 .DS_Store
 .commandcode/
 graphify-out
+egress_request.json

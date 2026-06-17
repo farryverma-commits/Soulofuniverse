@@ -36,6 +36,8 @@ export const AdminSchedulerPage: React.FC = () => {
   });
   const [saving, setSaving] = useState(false);
   const [groupSessions, setGroupSessions] = useState<any[]>([]);
+  const [otherSessions, setOtherSessions] = useState<any[]>([]);
+  const [otherSessionsLoading, setOtherSessionsLoading] = useState(true);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const toLocalDatetime = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -116,6 +118,7 @@ export const AdminSchedulerPage: React.FC = () => {
     fetchAvailability();
     fetchRequests();
     fetchGroupSessions();
+    fetchOtherSessions();
   }, [user]);
 
   const fetchGroupSessions = async () => {
@@ -126,6 +129,20 @@ export const AdminSchedulerPage: React.FC = () => {
       .eq("mentor_id", user.id)
       .order("scheduled_start_time", { ascending: true });
     if (data) setGroupSessions(data);
+  };
+
+  const fetchOtherSessions = async () => {
+    if (!user) return;
+    setOtherSessionsLoading(true);
+    const { data } = await supabase
+      .from("group_sessions")
+      .select(`*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`)
+      .neq("mentor_id", user.id)
+      .in("status", ["scheduled", "live"])
+      .order("scheduled_start_time", { ascending: true })
+      .limit(10);
+    setOtherSessions(data || []);
+    setOtherSessionsLoading(false);
   };
 
   const fetchRequests = async () => {
@@ -470,6 +487,67 @@ export const AdminSchedulerPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Group Sessions from other mentors — same as student view */}
+          {otherSessionsLoading ? (
+            <div className="card card-glow mt-5 p-10 flex items-center justify-center">
+              <OrbitalLoader variant="inline" />
+            </div>
+          ) : otherSessions.length > 0 ? (
+            <div className="mt-5">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-sm font-bold text-text tracking-tight">
+                  Group Sessions
+                </h2>
+                <span className="section-label">
+                  {otherSessions.length} upcoming
+                </span>
+              </div>
+              <div className="space-y-3">
+                {otherSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="card card-hover p-5 flex items-center gap-4"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {session.status === "live" ? (
+                          <span className="badge badge-live">Live</span>
+                        ) : (
+                          <span className="badge badge-primary">Upcoming</span>
+                        )}
+                        <span className="text-xs text-text-muted font-medium">
+                          {new Date(
+                            session.scheduled_start_time,
+                          ).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: true,
+                          })}
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-semibold text-text truncate">
+                        {session.title}
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        With {session.mentor?.full_name || "Mentor"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        window.open(`/meeting/${session.id}`, "_blank")
+                      }
+                      className="btn-primary text-xs px-4 py-2 shrink-0"
+                    >
+                      Join
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -873,7 +951,7 @@ function SessionRow({
   const startDate = new Date(session.scheduled_start_time);
   const endDate = new Date(session.scheduled_end_time);
   const isLive = session.status === "live";
-  const isPast = endDate < new Date();
+  const isPast = session.status === "completed";
 
   const getStatusBadge = () => {
     if (isLive)

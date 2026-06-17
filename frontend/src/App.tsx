@@ -1,5 +1,6 @@
 import React from "react";
 import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import {
   Home,
   Calendar,
@@ -48,30 +49,43 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={!user ? <LoginPage /> : <Navigate to="/" />}
+    <>
+      <Toaster
+        position="bottom-center"
+        toastOptions={{
+          style: {
+            background: "var(--color-surface-raised)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border)",
+            fontSize: "0.8125rem",
+          },
+        }}
       />
-      <Route
-        path="/register"
-        element={!user ? <RegisterPage /> : <Navigate to="/" />}
-      />
-      <Route
-        path="/meeting/:sessionId"
-        element={user ? <MeetingPage /> : <Navigate to="/login" />}
-      />
-      <Route
-        path="/*"
-        element={
-          user ? (
-            <DashboardLayout user={user} role={role} />
-          ) : (
-            <Navigate to="/login" />
-          )
-        }
-      />
-    </Routes>
+      <Routes>
+        <Route
+          path="/login"
+          element={!user ? <LoginPage /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/register"
+          element={!user ? <RegisterPage /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/meeting/:sessionId"
+          element={user ? <MeetingPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/*"
+          element={
+            user ? (
+              <DashboardLayout user={user} role={role} />
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+      </Routes>
+    </>
   );
 }
 
@@ -515,12 +529,16 @@ function HomePage({ user, role }: { user: any; role: any }) {
                         <span className="badge badge-primary">Upcoming</span>
                       )}
                       <span className="text-xs text-text-muted font-medium">
-                        {new Date(
-                          session.scheduled_start_time,
-                        ).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(session.scheduled_start_time).toLocaleString(
+                          [],
+                          {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: true,
+                          },
+                        )}
                       </span>
                     </div>
                     <h3 className="text-sm font-semibold text-text truncate">

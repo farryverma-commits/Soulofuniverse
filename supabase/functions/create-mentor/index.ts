@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,6 +7,9 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_PUBLISHABLE_KEYS = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
   const SUPABASE_SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -33,10 +36,6 @@ Deno.serve(async (req: Request) => {
       "Key name 'default' not found in SUPABASE_PUBLISHABLE_KEYS / SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
-  }
-
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
   }
 
   try {

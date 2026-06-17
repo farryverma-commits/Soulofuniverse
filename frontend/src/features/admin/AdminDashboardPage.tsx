@@ -173,12 +173,16 @@ export const AdminDashboardPage: React.FC = () => {
                       <span className="badge badge-primary">Upcoming</span>
                     )}
                     <span className="text-xs text-text-muted font-medium">
-                      {new Date(
-                        session.scheduled_start_time,
-                      ).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {new Date(session.scheduled_start_time).toLocaleString(
+                        [],
+                        {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: true,
+                        },
+                      )}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-text truncate">

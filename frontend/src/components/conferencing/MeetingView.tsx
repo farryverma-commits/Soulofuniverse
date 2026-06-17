@@ -291,7 +291,7 @@ function MyVideoConference({
             setSessionStatus("ended");
             setTimeout(() => {
               room.disconnect();
-              navigate("/dashboard", { replace: true });
+              navigate("/", { replace: true });
             }, 3000);
           }
         } catch (e) {
@@ -333,7 +333,7 @@ function MyVideoConference({
           setSessionStatus("ended");
           setTimeout(() => {
             room.disconnect();
-            navigate("/dashboard", { replace: true });
+            navigate("/", { replace: true });
           }, 3000);
           return;
         }
@@ -756,9 +756,9 @@ function MyVideoConference({
                           <span className="text-sm font-bold text-gray-200">
                             Chat
                           </span>
-                          <span className="text-[10px] text-gray-500">
+                          {/* <span className="text-[10px] text-gray-500">
                             Send messages to all
-                          </span>
+                          </span> */}
                         </div>
                       </button>
                       <button
@@ -776,9 +776,9 @@ function MyVideoConference({
                           <span className="text-sm font-bold text-gray-200">
                             Participants
                           </span>
-                          <span className="text-[10px] text-gray-500">
+                          {/* <span className="text-[10px] text-gray-500">
                             Manage everyone
-                          </span>
+                          </span> */}
                         </div>
                       </button>
                       <button
@@ -799,9 +799,9 @@ function MyVideoConference({
                           <span className="text-sm font-bold text-gray-200">
                             {layout === "grid" ? "Speaker View" : "Grid View"}
                           </span>
-                          <span className="text-[10px] text-gray-500">
+                          {/* <span className="text-[10px] text-gray-500">
                             Change perspective
-                          </span>
+                          </span> */}
                         </div>
                       </button>
 
@@ -837,6 +837,8 @@ function MyVideoConference({
                               </span>
                             </div>
                           </button>
+                          {/* 
+                          Hiding recording button now
                           <button
                             onClick={() => {
                               handleToggleRecording();
@@ -862,7 +864,7 @@ function MyVideoConference({
                                   : "Save this meeting"}
                               </span>
                             </div>
-                          </button>
+                          </button> */}
                         </>
                       )}
                     </div>
@@ -1040,7 +1042,7 @@ function MyVideoConference({
                     />
                   )}
 
-                  {isMentor && (
+                  {/* {isMentor && (
                     <ControlActionButton
                       onClick={handleToggleRecording}
                       icon={
@@ -1054,7 +1056,7 @@ function MyVideoConference({
                       isActive={isRecording}
                       activeColor="text-red-500"
                     />
-                  )}
+                  )} */}
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-4 shrink-0">
@@ -1121,7 +1123,7 @@ function MyVideoConference({
                           // 4. Disconnect and redirect
                           setTimeout(() => {
                             room.disconnect();
-                            navigate("/dashboard", { replace: true });
+                            navigate("/", { replace: true });
                           }, 2000);
                         } catch (err) {
                           console.error(err);
@@ -1129,7 +1131,7 @@ function MyVideoConference({
                         }
                       } else {
                         room.disconnect();
-                        navigate("/dashboard", { replace: true });
+                        navigate("/", { replace: true });
                       }
                     }}
                     className="w-12 h-12 md:w-auto md:px-6 md:py-4 bg-red-500 hover:bg-red-600 rounded-full md:rounded-2xl flex items-center justify-center gap-2 text-white shadow-lg active:scale-95 transition-all group"
@@ -1219,7 +1221,7 @@ function MyVideoConference({
         {p.isCameraEnabled ? (
           <VideoTrack
             trackRef={trackRef}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
         ) : (
           <div className="w-full h-full bg-[#14141c] flex items-center justify-center">
