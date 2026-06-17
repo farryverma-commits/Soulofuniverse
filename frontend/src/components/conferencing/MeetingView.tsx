@@ -77,9 +77,12 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         onDisconnected={onDisconnected}
         connectOptions={{ autoSubscribe: true }}
         options={{
-          adaptiveStream: true,
+          adaptiveStream: { pixelDensity: 1 } as const,
           dynacast: true,
+          singlePeerConnection: false,
           publishDefaults: {
+            videoCodec: "vp9",
+            backupCodec: false,
             audioPreset: AudioPresets.speech,
             stopMicTrackOnMute: true,
           },
@@ -635,9 +638,9 @@ function MyVideoConference({
             ) : layout === "grid" ? (
               /* Grid View — show all non-local participants, camera or not */
               <div
-                className="h-full w-full rounded-2xl overflow-y-auto border border-white/10 bg-black/40 grid gap-3 p-3 content-start"
+                className="h-full w-full rounded-2xl overflow-y-auto border border-white/10 bg-black/40 grid gap-3 p-3 content-start justify-center"
                 style={{
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${gridParticipants.length <= 2 ? "320px" : "260px"}, 1fr))`,
+                  gridTemplateColumns: `repeat(auto-fill, ${isMobile ? "280px" : "360px"})`,
                 }}
               >
                 {gridParticipants.slice(0, 24).map((p) => {
@@ -649,6 +652,7 @@ function MyVideoConference({
                       key={p.identity}
                       participant={p}
                       trackRef={camTrack}
+                      isMobile={isMobile}
                     />
                   );
                 })}
@@ -668,7 +672,7 @@ function MyVideoConference({
               </div>
             ) : (
               /* Speaker View — mentor fills canvas, active speakers float at bottom */
-              <div className="h-full w-full relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl">
+              <div className="h-full w-full relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl" style={{ contain: 'layout paint' }}>
                 <div className="absolute inset-0">
                   {mainTrack && <CustomParticipantTile trackRef={mainTrack} />}
                 </div>
@@ -685,7 +689,8 @@ function MyVideoConference({
                         return (
                           <div
                             key={p.identity}
-                            className="shrink-0 w-[148px] h-[92px] rounded-xl overflow-hidden border border-white/15 bg-black/80 shadow-lg hover:scale-105 hover:border-white/30 transition-all duration-200"
+                            className="shrink-0 rounded-xl overflow-hidden border border-white/15 bg-black/80 shadow-lg"
+                            style={{ width: 148, height: 92, contain: 'layout paint' }}
                           >
                             {camTrack ? (
                               <CustomParticipantTile trackRef={camTrack} />
@@ -1225,7 +1230,10 @@ function MyVideoConference({
       );
 
     return (
-      <div className="relative w-full h-full group overflow-hidden">
+      <div
+        className="relative w-full h-full group overflow-hidden"
+        style={{ contain: 'layout paint' }}
+      >
         {p.isCameraEnabled ? (
           <VideoTrack
             trackRef={trackRef}
@@ -1263,12 +1271,19 @@ function MyVideoConference({
   function ParticipantGridTile({
     participant,
     trackRef,
+    isMobile,
   }: {
     participant: any;
     trackRef?: any;
+    isMobile: boolean;
   }) {
+    const w = isMobile ? 280 : 360;
+    const h = Math.round((w * 9) / 16);
     return (
-      <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-black/60">
+      <div
+        className="rounded-xl overflow-hidden border border-white/10 bg-black/60 shrink-0"
+        style={{ width: w, height: h, contain: 'layout paint' }}
+      >
         {trackRef ? (
           <CustomParticipantTile trackRef={trackRef} />
         ) : (
