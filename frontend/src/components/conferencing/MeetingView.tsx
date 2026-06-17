@@ -14,7 +14,7 @@ import {
   useTrackRefContext,
   useParticipants,
 } from "@livekit/components-react";
-import { Track, DataPacket_Kind } from "livekit-client";
+import { Track, DataPacket_Kind, AudioPresets } from "livekit-client";
 import { useNavigate } from "react-router-dom";
 //import "@livekit/components-styles";
 import { supabase } from "../../services/supabaseClient";
@@ -76,6 +76,14 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         serverUrl={serverUrl}
         onDisconnected={onDisconnected}
         connectOptions={{ autoSubscribe: true }}
+        options={{
+          adaptiveStream: true,
+          dynacast: true,
+          publishDefaults: {
+            audioPreset: AudioPresets.speech,
+            stopMicTrackOnMute: true,
+          },
+        }}
         className="flex-1 flex flex-col overflow-hidden text-white"
       >
         <MyVideoConference
