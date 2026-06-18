@@ -3,7 +3,6 @@ import {
   useParticipants,
   useLocalParticipant,
   VideoTrack,
-  TrackReferenceOrPlaceholder,
   useTracks,
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
@@ -43,9 +42,9 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
   const prevPendingCountRef = useRef(0);
 
   // Fetch camera tracks to provide explicit trackRef to mini-tiles
-  const cameraTracks = useTracks([
-    { source: Track.Source.Camera, withPlaceholder: false },
-  ]);
+  // const cameraTracks = useTracks([
+  //   { source: Track.Source.Camera, withPlaceholder: false },
+  // ]);
 
   const localMetadata = useMemo(() => {
     try {
@@ -346,7 +345,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                       </div>
 
                       {/* Mini Video Tile if publishing and not main speaker */}
-                      {isPublishingVideo && !p.isLocal && (
+                      {/* {isPublishingVideo && !p.isLocal && (
                         <div className="w-full aspect-video rounded-lg overflow-hidden border border-white/10 bg-black/40 mt-1">
                           <VideoTrack
                             trackRef={cameraTracks.find(
@@ -355,7 +354,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                             className="w-full h-full object-cover"
                           />
                         </div>
-                      )}
+                      )} */}
 
                       {isMentor && !p.isLocal && pMetadata.handRaised && (
                         <div className="flex items-center gap-2 mt-1 pt-1 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">

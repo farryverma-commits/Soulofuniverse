@@ -14,7 +14,7 @@ import {
   useTrackRefContext,
   useParticipants,
 } from "@livekit/components-react";
-import { Track, DataPacket_Kind, AudioPresets } from "livekit-client";
+import { Track, AudioPresets } from "livekit-client";
 import { useNavigate } from "react-router-dom";
 //import "@livekit/components-styles";
 import { supabase } from "../../services/supabaseClient";
@@ -79,10 +79,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         options={{
           adaptiveStream: { pixelDensity: 1 } as const,
           dynacast: true,
-          singlePeerConnection: false,
           publishDefaults: {
-            videoCodec: "vp9",
-            backupCodec: false,
             audioPreset: AudioPresets.speech,
             stopMicTrackOnMute: true,
           },
@@ -168,51 +165,51 @@ function MyVideoConference({
   const [sidebarTab, setSidebarTab] = useState<
     "chat" | "participants" | "approval"
   >("chat");
-  const [isRecording, setIsRecording] = useState(false);
-  const [egressId, setEgressId] = useState<string | null>(null);
-  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
-    null,
-  );
-  const [recordingDuration, setRecordingDuration] = useState("00:00");
+  //const [isRecording, setIsRecording] = useState(false);
+  //const [egressId, setEgressId] = useState<string | null>(null);
+  // const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
+  //   null,
+  // );
+  // const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Restore recording state from DB on mount (handles page refresh mid-recording)
-  useEffect(() => {
-    if (!isMentor) return;
-    const restoreRecordingState = async () => {
-      const { data } = await supabase
-        .from("session_recordings")
-        .select("egress_id, status, started_at")
-        .eq("session_id", sessionId)
-        .in("status", ["starting", "recording"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
+  // useEffect(() => {
+  //   if (!isMentor) return;
+  //   const restoreRecordingState = async () => {
+  //     const { data } = await supabase
+  //       .from("session_recordings")
+  //       .select("egress_id, status, started_at")
+  //       .eq("session_id", sessionId)
+  //       .in("status", ["starting", "recording"])
+  //       .order("created_at", { ascending: false })
+  //       .limit(1)
+  //       .single();
 
-      if (data) {
-        setIsRecording(true);
-        setEgressId(data.egress_id);
-        setRecordingStartTime(new Date(data.started_at).getTime());
-      }
-    };
-    restoreRecordingState();
-  }, [sessionId, isMentor]);
+  //     if (data) {
+  //       setIsRecording(true);
+  //       setEgressId(data.egress_id);
+  //       setRecordingStartTime(new Date(data.started_at).getTime());
+  //     }
+  //   };
+  //   restoreRecordingState();
+  // }, [sessionId, isMentor]);
 
   // Recording duration timer
-  useEffect(() => {
-    if (!isRecording || !recordingStartTime) {
-      setRecordingDuration("00:00");
-      return;
-    }
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-      const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
-      const secs = String(elapsed % 60).padStart(2, "0");
-      setRecordingDuration(`${mins}:${secs}`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isRecording, recordingStartTime]);
+  // useEffect(() => {
+  //   if (!isRecording || !recordingStartTime) {
+  //     setRecordingDuration("00:00");
+  //     return;
+  //   }
+  //   const interval = setInterval(() => {
+  //     const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+  //     const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  //     const secs = String(elapsed % 60).padStart(2, "0");
+  //     setRecordingDuration(`${mins}:${secs}`);
+  //   }, 1000);
+  //   return () => clearInterval(interval);
+  // }, [isRecording, recordingStartTime]);
 
   // Handle window resize for mobile detection and auto-close sidebar when transitioning from desktop to mobile
   useEffect(() => {
@@ -277,6 +274,7 @@ function MyVideoConference({
 
   // Poll for session-end signal via mentor metadata (backup for data channel)
   // Runs on a timer instead of every state change to avoid 200+ JSON.parse per tick
+  //TODO: change this into event driven instead of polling
   const allParticipantsRef = useRef(allParticipants);
   allParticipantsRef.current = allParticipants;
 
@@ -402,70 +400,70 @@ function MyVideoConference({
     }
   };
 
-  const handleToggleRecording = async () => {
-    if (!isMentor) return;
-    const {
-      data: { session: authSession },
-    } = await supabase.auth.getSession();
+  // const handleToggleRecording = async () => {
+  //   if (!isMentor) return;
+  //   const {
+  //     data: { session: authSession },
+  //   } = await supabase.auth.getSession();
 
-    try {
-      if (isRecording) {
-        const res = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${authSession?.access_token}`,
-            },
-            body: JSON.stringify({
-              session_id: sessionId,
-              action: "stop_recording",
-              egress_id: egressId,
-            }),
-          },
-        );
-        if (!res.ok) {
-          const err = await res
-            .json()
-            .catch(() => ({ error: "Unknown error" }));
-          console.error("Failed to stop recording:", err.error);
-          return;
-        }
-        setIsRecording(false);
-        setEgressId(null);
-        setRecordingStartTime(null);
-      } else {
-        const res = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${authSession?.access_token}`,
-            },
-            body: JSON.stringify({
-              session_id: sessionId,
-              action: "start_recording",
-            }),
-          },
-        );
-        if (!res.ok) {
-          const err = await res
-            .json()
-            .catch(() => ({ error: "Unknown error" }));
-          console.error("Failed to start recording:", err.error);
-          return;
-        }
-        const data = await res.json();
-        setIsRecording(true);
-        setEgressId(data.egress_id);
-        setRecordingStartTime(Date.now());
-      }
-    } catch (err) {
-      console.error("Recording toggle failed:", err);
-    }
-  };
+  //   try {
+  //     if (isRecording) {
+  //       const res = await fetch(
+  //         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+  //         {
+  //           method: "POST",
+  //           headers: {
+  //             "Content-Type": "application/json",
+  //             Authorization: `Bearer ${authSession?.access_token}`,
+  //           },
+  //           body: JSON.stringify({
+  //             session_id: sessionId,
+  //             action: "stop_recording",
+  //             egress_id: egressId,
+  //           }),
+  //         },
+  //       );
+  //       if (!res.ok) {
+  //         const err = await res
+  //           .json()
+  //           .catch(() => ({ error: "Unknown error" }));
+  //         console.error("Failed to stop recording:", err.error);
+  //         return;
+  //       }
+  //       setIsRecording(false);
+  //       setEgressId(null);
+  //       setRecordingStartTime(null);
+  //     } else {
+  //       const res = await fetch(
+  //         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+  //         {
+  //           method: "POST",
+  //           headers: {
+  //             "Content-Type": "application/json",
+  //             Authorization: `Bearer ${authSession?.access_token}`,
+  //           },
+  //           body: JSON.stringify({
+  //             session_id: sessionId,
+  //             action: "start_recording",
+  //           }),
+  //         },
+  //       );
+  //       if (!res.ok) {
+  //         const err = await res
+  //           .json()
+  //           .catch(() => ({ error: "Unknown error" }));
+  //         console.error("Failed to start recording:", err.error);
+  //         return;
+  //       }
+  //       const data = await res.json();
+  //       setIsRecording(true);
+  //       setEgressId(data.egress_id);
+  //       setRecordingStartTime(Date.now());
+  //     }
+  //   } catch (err) {
+  //     console.error("Recording toggle failed:", err);
+  //   }
+  // };
 
   // Layout Logic: Mentor always visible, active speakers alongside
   // Track filtering logic
@@ -506,14 +504,14 @@ function MyVideoConference({
     }
 
     // Secondary fallback: Any camera track if no mentor track found
-    const anyCamera = tracks.find((t) => t.source === Track.Source.Camera);
-    if (anyCamera) {
-      devLog(
-        "Using secondary fallback camera:",
-        anyCamera.participant.identity,
-      );
-      return anyCamera;
-    }
+    // const anyCamera = tracks.find((t) => t.source === Track.Source.Camera);
+    // if (anyCamera) {
+    //   devLog(
+    //     "Using secondary fallback camera:",
+    //     anyCamera.participant.identity,
+    //   );
+    //   return anyCamera;
+    // }
 
     return null;
   }, [tracks, mentorId, isMentor, localParticipant]);
@@ -523,7 +521,7 @@ function MyVideoConference({
   );
 
   // Determine main focus: Screen Share > Mentor
-  const mainTrack = screenShareTrack || mainSpeakerTrack || tracks[0];
+  const mainTrack = screenShareTrack || mainSpeakerTrack || null;
 
   // All camera tracks (for mentor main view)
   const cameraTracks = useMemo(() => {
@@ -571,9 +569,9 @@ function MyVideoConference({
   }, [allParticipants, localParticipant?.identity, mentorId]);
 
   // Non-local participants for grid mode
-  const gridParticipants = useMemo(() => {
-    return allParticipants;
-  }, [allParticipants]);
+  // const gridParticipants = useMemo(() => {
+  //   return allParticipants;
+  // }, [allParticipants]);
 
   // Listener count: non-local participants not currently speaking
   const listenerCount = useMemo(() => {
@@ -609,13 +607,13 @@ function MyVideoConference({
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Header/Overlay Info */}
-          <div className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-3">
-            {/* <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-white/20 flex items-center gap-2 md:gap-2.5 shadow-2xl">
+          {/* <div className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-3">
+            { <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-white/20 flex items-center gap-2 md:gap-2.5 shadow-2xl">
               <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
               <span className="text-[9px] md:text-[11px] font-black text-white uppercase tracking-[0.2em]">
                 Live Session
               </span>
-            </div> */}
+            </div> }
             {isRecording && (
               <div className="bg-red-600/80 backdrop-blur-md px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-red-400/20 flex items-center gap-2 shadow-2xl">
                 <CircleDot className="w-3 h-3 text-white animate-pulse" />
@@ -624,7 +622,7 @@ function MyVideoConference({
                 </span>
               </div>
             )}
-          </div>
+          </div> */}
 
           <div className="flex-1 overflow-hidden p-2 md:p-6 mb-24 md:mb-28">
             {/* Empty room — nobody here yet */}
@@ -635,44 +633,48 @@ function MyVideoConference({
                   Preparing your session...
                 </p>
               </div>
-            ) : layout === "grid" ? (
-              /* Grid View — show all non-local participants, camera or not */
-              <div
-                className="h-full w-full rounded-2xl overflow-y-auto border border-white/10 bg-black/40 grid gap-3 p-3 content-start justify-center"
-                style={{
-                  gridTemplateColumns: `repeat(auto-fill, ${isMobile ? "280px" : "360px"})`,
-                }}
-              >
-                {gridParticipants.slice(0, 24).map((p) => {
-                  const camTrack = cameraTracks.find(
-                    (t) => t.participant.identity === p.identity,
-                  );
-                  return (
-                    <ParticipantGridTile
-                      key={p.identity}
-                      participant={p}
-                      trackRef={camTrack}
-                      isMobile={isMobile}
-                    />
-                  );
-                })}
-                {gridParticipants.length > 4 && (
-                  <div className="col-span-full flex justify-center py-2">
-                    <button
-                      onClick={() => {
-                        setSidebarTab("participants");
-                        setShowSidebar(true);
-                      }}
-                      className="text-[10px] font-bold text-white/40 bg-white/5 hover:bg-white/10 px-4 py-1.5 rounded-full transition-colors"
-                    >
-                      View all {gridParticipants.length} participants
-                    </button>
-                  </div>
-                )}
-              </div>
             ) : (
+              // layout === "grid" ? (
+              //   /* Grid View — show all non-local participants, camera or not */
+              //   <div
+              //     className="h-full w-full rounded-2xl overflow-y-auto border border-white/10 bg-black/40 grid gap-3 p-3 content-start justify-center"
+              //     style={{
+              //       gridTemplateColumns: `repeat(auto-fill, ${isMobile ? "280px" : "360px"})`,
+              //     }}
+              //   >
+              //     {gridParticipants.slice(0, 24).map((p) => {
+              //       const camTrack = cameraTracks.find(
+              //         (t) => t.participant.identity === p.identity,
+              //       );
+              //       return (
+              //         <ParticipantGridTile
+              //           key={p.identity}
+              //           participant={p}
+              //           trackRef={camTrack}
+              //           isMobile={isMobile}
+              //         />
+              //       );
+              //     })}
+              //     {gridParticipants.length > 4 && (
+              //       <div className="col-span-full flex justify-center py-2">
+              //         <button
+              //           onClick={() => {
+              //             setSidebarTab("participants");
+              //             setShowSidebar(true);
+              //           }}
+              //           className="text-[10px] font-bold text-white/40 bg-white/5 hover:bg-white/10 px-4 py-1.5 rounded-full transition-colors"
+              //         >
+              //           View all {gridParticipants.length} participants
+              //         </button>
+              //       </div>
+              //     )}
+              //   </div>
+              // ) :
               /* Speaker View — mentor fills canvas, active speakers float at bottom */
-              <div className="h-full w-full relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl" style={{ contain: 'layout paint' }}>
+              <div
+                className="h-full w-full relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl"
+                style={{ contain: "layout paint" }}
+              >
                 <div className="absolute inset-0">
                   {mainTrack && <CustomParticipantTile trackRef={mainTrack} />}
                 </div>
@@ -683,20 +685,25 @@ function MyVideoConference({
                       style={{ scrollbarWidth: "none" }}
                     >
                       {activeSpeakers.map((p) => {
-                        const camTrack = cameraTracks.find(
-                          (t) => t.participant.identity === p.identity,
-                        );
+                        // const camTrack = cameraTracks.find(
+                        //   (t) => t.participant.identity === p.identity,
+                        // );
                         return (
                           <div
                             key={p.identity}
                             className="shrink-0 rounded-xl overflow-hidden border border-white/15 bg-black/80 shadow-lg"
-                            style={{ width: 148, height: 92, contain: 'layout paint' }}
+                            style={{
+                              width: 148,
+                              height: 92,
+                              contain: "layout paint",
+                            }}
                           >
-                            {camTrack ? (
-                              <CustomParticipantTile trackRef={camTrack} />
-                            ) : (
+                            {
+                              // camTrack ? (
+                              //   <CustomParticipantTile trackRef={camTrack} />
+                              // ) :
                               <ParticipantAvatarTile participant={p} compact />
-                            )}
+                            }
                           </div>
                         );
                       })}
@@ -715,12 +722,14 @@ function MyVideoConference({
           {/* Conference Control Bar */}
           {isMobile && !showSidebar ? (
             <div className="fixed bottom-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-3.5 animate-in slide-in-from-bottom-8 duration-500">
-              <MediaControl
-                source={Track.Source.Camera}
-                minimal={true}
-                onIcon={<Video className="w-5 h-5" />}
-                offIcon={<VideoOff className="w-5 h-5" />}
-              />
+              {isMentor && (
+                <MediaControl
+                  source={Track.Source.Camera}
+                  minimal
+                  onIcon={<Video className="w-5 h-5" />}
+                  offIcon={<VideoOff className="w-5 h-5" />}
+                />
+              )}
               <MediaControl
                 source={Track.Source.Microphone}
                 minimal={true}
@@ -794,7 +803,7 @@ function MyVideoConference({
                           </span> */}
                         </div>
                       </button>
-                      <button
+                      {/* <button
                         onClick={() => {
                           setLayout(layout === "grid" ? "speaker" : "grid");
                           setShowMoreMenu(false);
@@ -811,12 +820,9 @@ function MyVideoConference({
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-gray-200">
                             {layout === "grid" ? "Speaker View" : "Grid View"}
-                          </span>
-                          {/* <span className="text-[10px] text-gray-500">
-                            Change perspective
-                          </span> */}
+                          </span>                       
                         </div>
-                      </button>
+                      </button> */}
 
                       {isMentor && (
                         <>
@@ -951,31 +957,35 @@ function MyVideoConference({
                   </div>
 
                   {/* Camera Control */}
-                  <div className="relative group">
-                    <div className="relative flex items-center bg-white/10 rounded-2xl border border-white/10 transition-all overflow-hidden shadow-lg hover:border-white/30">
-                      <MediaControl
-                        source={Track.Source.Camera}
-                        //disabled={!canSpeak}
-                        onIcon={<Video className="w-5 h-5 text-white" />}
-                        offIcon={<VideoOff className="w-5 h-5 text-red-500" />}
-                      />
-                      <button
-                        onClick={() => setShowVideoMenu(!showVideoMenu)}
-                        className="px-2 py-4 hover:bg-white/10 transition-colors border-l border-white/10 disabled:hover:bg-transparent"
-                      >
-                        <ChevronUp
-                          className={`w-4 h-4 text-gray-400 transition-transform ${showVideoMenu ? "rotate-180" : ""}`}
+                  {isMentor && (
+                    <div className="relative group">
+                      <div className="relative flex items-center bg-white/10 rounded-2xl border border-white/10 transition-all overflow-hidden shadow-lg hover:border-white/30">
+                        <MediaControl
+                          source={Track.Source.Camera}
+                          //disabled={!canSpeak}
+                          onIcon={<Video className="w-5 h-5 text-white" />}
+                          offIcon={
+                            <VideoOff className="w-5 h-5 text-red-500" />
+                          }
                         />
-                      </button>
-                    </div>
+                        <button
+                          onClick={() => setShowVideoMenu(!showVideoMenu)}
+                          className="px-2 py-4 hover:bg-white/10 transition-colors border-l border-white/10 disabled:hover:bg-transparent"
+                        >
+                          <ChevronUp
+                            className={`w-4 h-4 text-gray-400 transition-transform ${showVideoMenu ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                      </div>
 
-                    {showVideoMenu && (
-                      <DeviceMenu
-                        kind="videoinput"
-                        onClose={() => setShowVideoMenu(false)}
-                      />
-                    )}
-                  </div>
+                      {showVideoMenu && (
+                        <DeviceMenu
+                          kind="videoinput"
+                          onClose={() => setShowVideoMenu(false)}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Center: Main Actions */}
@@ -1008,7 +1018,7 @@ function MyVideoConference({
                     isActive={showSidebar && sidebarTab === "participants"}
                   />
 
-                  <ControlActionButton
+                  {/* <ControlActionButton
                     onClick={() =>
                       setLayout(layout === "grid" ? "speaker" : "grid")
                     }
@@ -1021,7 +1031,7 @@ function MyVideoConference({
                     }
                     label={layout === "grid" ? "Speaker" : "Grid"}
                     isActive={false}
-                  />
+                  /> */}
 
                   <ControlActionButton
                     onClick={toggleHand}
@@ -1208,141 +1218,135 @@ function MyVideoConference({
     </LayoutContextProvider>
   );
 
-  // Custom Participant Tile - Defined inside for closure access
-  function CustomParticipantTile(props: any) {
-    // Safe context access
-    let contextTrack;
-    try {
-      contextTrack = useTrackRefContext();
-    } catch (e) {
-      // Expected when rendered outside a context provider
-    }
+}
 
-    const trackRef = props.trackRef || contextTrack;
-    const p = props.participant || trackRef?.participant;
-
-    // Guard against missing participant early
-    if (!p)
-      return (
-        <div className="bg-gray-900 w-full h-full animate-pulse flex items-center justify-center text-[10px] text-white/20 uppercase font-black">
-          Connecting...
-        </div>
-      );
-
-    return (
-      <div
-        className="relative w-full h-full group overflow-hidden"
-        style={{ contain: 'layout paint' }}
-      >
-        {p.isCameraEnabled ? (
-          <VideoTrack
-            trackRef={trackRef}
-            className="w-full h-full object-contain"
-          />
-        ) : (
-          <div className="w-full h-full bg-[#14141c] flex items-center justify-center">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-                <User className="w-6 h-6 text-white/30" />
-              </div>
-              {/* <span className="text-[10px] font-medium text-white/40 truncate max-w-[100px] text-center">
-                {p.name || p.identity}
-              </span> */}
-            </div>
-          </div>
-        )}
-
-        {/* Participant Name Overlay */}
-        <div className="absolute bottom-1 left-1 z-20 flex items-center gap-2 max-w-[calc(100%-32px)]">
-          <div className="bg-black/60 backdrop-blur-md px-1.5 py-1 rounded border border-white/10 flex items-center gap-2 w-full overflow-hidden">
-            <div
-              className={`shrink-0 w-1.5 h-1.5 rounded-full ${p.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}
-            />
-            <span className="text-[10px] font-bold text-white tracking-wide truncate">
-              {p.name || p.identity}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
+// Moved to module level — defining these inside MyVideoConference caused them to be
+// recreated on every render, which made React unmount/remount VideoTrack (flicker).
+const CustomParticipantTile = React.memo(function CustomParticipantTile(props: any) {
+  let contextTrack: any;
+  try {
+    contextTrack = useTrackRefContext();
+  } catch (_) {
+    // Expected when rendered outside a context provider
   }
 
-  // Tile for grid mode — works with or without camera
-  function ParticipantGridTile({
-    participant,
-    trackRef,
-    isMobile,
-  }: {
-    participant: any;
-    trackRef?: any;
-    isMobile: boolean;
-  }) {
-    const w = isMobile ? 280 : 360;
-    const h = Math.round((w * 9) / 16);
+  const trackRef = props.trackRef || contextTrack;
+  const p = props.participant || trackRef?.participant;
+
+  if (!p)
     return (
-      <div
-        className="rounded-xl overflow-hidden border border-white/10 bg-black/60 shrink-0"
-        style={{ width: w, height: h, contain: 'layout paint' }}
-      >
-        {trackRef ? (
-          <CustomParticipantTile trackRef={trackRef} />
-        ) : (
-          <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center gap-2 p-3">
+      <div className="bg-gray-900 w-full h-full animate-pulse flex items-center justify-center text-[10px] text-white/20 uppercase font-black">
+        Connecting...
+      </div>
+    );
+
+  return (
+    <div
+      className="relative w-full h-full group overflow-hidden"
+      style={{ contain: "layout paint" }}
+    >
+      {p.isCameraEnabled ? (
+        <VideoTrack
+          trackRef={trackRef}
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="w-full h-full bg-[#14141c] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
             <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
               <User className="w-6 h-6 text-white/30" />
             </div>
-            <div className="flex items-center gap-1.5">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" : "bg-red-500"}`}
-              />
-              <span className="text-[11px] font-bold text-white/60 truncate max-w-[120px]">
-                {participant.name || participant.identity}
-              </span>
-            </div>
-            {participant.isSpeaking && (
-              <div className="text-[9px] font-bold text-green-400/70 uppercase tracking-widest">
-                Speaking
-              </div>
-            )}
           </div>
-        )}
-      </div>
-    );
-  }
-
-  // Compact avatar tile for speaker strip
-  function ParticipantAvatarTile({
-    participant,
-    compact,
-  }: {
-    participant: any;
-    compact?: boolean;
-  }) {
-    return (
-      <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center p-1">
-        <div
-          className={`rounded-full bg-white/5 border border-white/10 flex items-center justify-center ${compact ? "w-6 h-6" : "w-8 h-8"}`}
-        >
-          <User
-            className={
-              compact ? "w-3.5 h-3.5 text-white/30" : "w-4 h-4 text-white/30"
-            }
-          />
         </div>
-        <span className="text-[8px] font-bold text-white/40 truncate max-w-[100px] mt-0.5 text-center leading-tight">
-          {participant.name || participant.identity}
-        </span>
-        <div className="flex items-center gap-1 mt-0.5">
+      )}
+
+      <div className="absolute bottom-1 left-1 z-20 flex items-center gap-2 max-w-[calc(100%-32px)]">
+        <div className="bg-black/60 backdrop-blur-md px-1.5 py-1 rounded border border-white/10 flex items-center gap-2 w-full overflow-hidden">
           <div
-            className={`w-1 h-1 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}
+            className={`shrink-0 w-1.5 h-1.5 rounded-full ${p.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}
           />
+          <span className="text-[10px] font-bold text-white tracking-wide truncate">
+            {p.name || p.identity}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function ParticipantGridTile({
+  participant,
+  trackRef,
+  isMobile,
+}: {
+  participant: any;
+  trackRef?: any;
+  isMobile: boolean;
+}) {
+  const w = isMobile ? 280 : 360;
+  const h = Math.round((w * 9) / 16);
+  return (
+    <div
+      className="rounded-xl overflow-hidden border border-white/10 bg-black/60 shrink-0"
+      style={{ width: w, height: h, contain: "layout paint" }}
+    >
+      {trackRef ? (
+        <CustomParticipantTile trackRef={trackRef} />
+      ) : (
+        <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center gap-2 p-3">
+          <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+            <User className="w-6 h-6 text-white/30" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" : "bg-red-500"}`}
+            />
+            <span className="text-[11px] font-bold text-white/60 truncate max-w-[120px]">
+              {participant.name || participant.identity}
+            </span>
+          </div>
           {participant.isSpeaking && (
-            <span className="text-[7px] font-bold text-green-400">SPK</span>
+            <div className="text-[9px] font-bold text-green-400/70 uppercase tracking-widest">
+              Speaking
+            </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ParticipantAvatarTile({
+  participant,
+  compact,
+}: {
+  participant: any;
+  compact?: boolean;
+}) {
+  return (
+    <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center p-1">
+      <div
+        className={`rounded-full bg-white/5 border border-white/10 flex items-center justify-center ${compact ? "w-6 h-6" : "w-8 h-8"}`}
+      >
+        <User
+          className={
+            compact ? "w-3.5 h-3.5 text-white/30" : "w-4 h-4 text-white/30"
+          }
+        />
       </div>
-    );
-  }
+      <span className="text-[8px] font-bold text-white/40 truncate max-w-[100px] mt-0.5 text-center leading-tight">
+        {participant.name || participant.identity}
+      </span>
+      <div className="flex items-center gap-1 mt-0.5">
+        <div
+          className={`w-1 h-1 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}
+        />
+        {participant.isSpeaking && (
+          <span className="text-[7px] font-bold text-green-400">SPK</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Helper Components for Zoom-like Controls
