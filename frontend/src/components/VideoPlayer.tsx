@@ -1,62 +1,131 @@
-import React, { useEffect, useRef } from 'react';
-import videojs from 'video.js';
-import 'video.js/dist/video-js.css';
+import React, { useEffect, useRef, useState } from "react";
+import videojs from "video.js";
+import "video.js/dist/video-js.css";
 
 // Quality Selector Plugins
-import 'videojs-contrib-quality-levels';
-import 'videojs-hls-quality-selector';
-
-// Type augmentation for video.js plugins
-declare module 'video.js' {
-  export interface Player {
-    hlsQualitySelector: (options?: { displayCurrentQuality?: boolean }) => void;
-  }
-}
+import "videojs-contrib-quality-levels";
+import "videojs-hls-quality-selector";
 
 interface VideoPlayerProps {
   options: any;
   onReady?: (player: any) => void;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  options,
+  onReady,
+}) => {
   const videoRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
+  const lastTapRef = useRef<number>(0);
+  const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cleanupTapRef = useRef<(() => void) | null>(null);
+
+  const [seekIndicator, setSeekIndicator] = useState<"forward" | "backward" | null>(null);
 
   useEffect(() => {
     // Make sure Video.js player is only initialized once
     if (!playerRef.current) {
       const videoElement = document.createElement("video-js");
-      
-      videoElement.classList.add('vjs-big-play-centered');
-      videoElement.classList.add('vjs-theme-youtube');
-      
+
+      videoElement.classList.add("vjs-big-play-centered");
+      videoElement.classList.add("vjs-theme-youtube");
+
       if (videoRef.current) {
         videoRef.current.appendChild(videoElement);
       }
 
-      const player = playerRef.current = videojs(videoElement, options, () => {
-        videojs.log('player is ready');
-        
+      const player = (playerRef.current = videojs(videoElement, { ...options, userActions: { ...options.userActions, doubleClick: false } }, () => {
+        videojs.log("player is ready");
+
         // Initialize HLS quality selector
-        if (player.hlsQualitySelector) {
-          player.hlsQualitySelector({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((playerRef.current as any).hlsQualitySelector) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (playerRef.current as any).hlsQualitySelector({
             displayCurrentQuality: true,
           });
         }
-        
-        onReady && onReady(player);
-      });
+
+        // Double-tap / double-click to seek — works on both mobile and desktop
+        const playerEl = playerRef.current.el();
+
+        const seekBySide = (clientX: number) => {
+          if (playerRef.current.paused()) return;
+          const rect = playerEl.getBoundingClientRect();
+          const x = clientX - rect.left;
+
+          if (x < rect.width / 2) {
+            playerRef.current.currentTime(Math.max(0, playerRef.current.currentTime() - 10));
+            setSeekIndicator("backward");
+          } else {
+            playerRef.current.currentTime(Math.min(playerRef.current.duration(), playerRef.current.currentTime() + 10));
+            setSeekIndicator("forward");
+          }
+          setTimeout(() => setSeekIndicator(null), 600);
+        };
+
+        // Mobile: double-tap via touchend
+        const onTouchEnd = (e: TouchEvent) => {
+          if (playerRef.current.paused()) return;
+          const now = Date.now();
+          if (now - lastTapRef.current < 300) {
+            const touch = e.changedTouches[0];
+            seekBySide(touch.clientX);
+            e.preventDefault();
+            lastTapRef.current = 0;
+          } else {
+            lastTapRef.current = now;
+          }
+        };
+
+        // Desktop: double-click with three zones
+        // Left 35% → backward seek, Right 35% → forward seek, Center 30% → fullscreen
+        const onDblClick = (e: MouseEvent) => {
+          if (playerRef.current.paused()) return;
+          const rect = playerEl.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width;
+
+          if (x < 0.35) {
+            // Left zone — backward seek
+            playerRef.current.currentTime(Math.max(0, playerRef.current.currentTime() - 10));
+            setSeekIndicator("backward");
+            setTimeout(() => setSeekIndicator(null), 600);
+          } else if (x > 0.65) {
+            // Right zone — forward seek
+            playerRef.current.currentTime(Math.min(playerRef.current.duration(), playerRef.current.currentTime() + 10));
+            setSeekIndicator("forward");
+            setTimeout(() => setSeekIndicator(null), 600);
+          } else {
+            // Center zone — toggle fullscreen
+            if (playerRef.current.isFullscreen()) {
+              playerRef.current.exitFullscreen();
+            } else {
+              playerRef.current.requestFullscreen();
+            }
+          }
+        };
+
+        playerEl.addEventListener("touchend", onTouchEnd);
+        playerEl.addEventListener("dblclick", onDblClick);
+        cleanupTapRef.current = () => {
+          playerEl.removeEventListener("touchend", onTouchEnd);
+          playerEl.removeEventListener("dblclick", onDblClick);
+        };
+
+        onReady && onReady(playerRef.current);
+      }));
     } else {
       const player = playerRef.current;
-      
+
       // Only update source if it has changed to prevent restarting
       const currentSrc = player.src();
       const newSrc = options.sources?.[0]?.src;
-      
+
       if (newSrc && currentSrc !== newSrc) {
         player.src(options.sources);
       }
-      
+
       if (options.autoplay !== undefined) {
         player.autoplay(options.autoplay);
       }
@@ -68,6 +137,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
     const player = playerRef.current;
 
     return () => {
+      if (cleanupTapRef.current) cleanupTapRef.current();
+      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
       if (player && !player.isDisposed()) {
         player.dispose();
         playerRef.current = null;
@@ -76,7 +147,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
   }, [playerRef]);
 
   return (
-    <div data-vjs-player className="w-full h-full">
+    <div data-vjs-player className="w-full h-full relative">
       <style>{`
         /* ============================================
            Cosmic Depths Video Player Theme
@@ -524,7 +595,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) =>
             transform: none;
           }
         }
+
+        /* ---- Double-tap seek indicator ---- */
+        .seek-indicator-badge {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background: rgba(10, 10, 20, 0.78);
+          border: 1px solid rgba(212, 168, 83, 0.18);
+          border-radius: 12px;
+          padding: 8px 14px;
+          color: #F0EDF5;
+          backdrop-filter: blur(8px);
+          animation: seek-fade 0.6s ease forwards;
+        }
+
+        @keyframes seek-fade {
+          0% { opacity: 1; transform: scale(1); }
+          60% { opacity: 1; transform: scale(1.06); }
+          100% { opacity: 0; transform: scale(1.12); }
+        }
       `}</style>
+      {seekIndicator && (
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 pointer-events-none z-10 ${
+            seekIndicator === "forward" ? "right-6" : "left-6"
+          }`}
+        >
+          <div className="seek-indicator-badge">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {seekIndicator === "forward" ? (
+                <>
+                  <polyline points="13 17 18 12 13 7" />
+                  <polyline points="6 17 11 12 6 7" />
+                </>
+              ) : (
+                <>
+                  <polyline points="11 17 6 12 11 7" />
+                  <polyline points="18 17 13 12 18 7" />
+                </>
+              )}
+            </svg>
+            <span className="text-sm font-semibold">10s</span>
+          </div>
+        </div>
+      )}
       <div ref={videoRef} className="w-full h-full" />
     </div>
   );
