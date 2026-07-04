@@ -145,6 +145,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           // Mobile: double-tap via touchend
           const onTouchEnd = (e: TouchEvent) => {
+            // Ignore touches on control bar children
+            const target = e.target as HTMLElement;
+            if (target.closest(".vjs-control-bar")) return;
+
+            // Suppress the browser's synthetic click that follows touchend;
+            // otherwise onClick misreads it as a second tap.
+            e.preventDefault();
+
             const now = Date.now();
             if (now - lastTapRef.current < 300) {
               // Second tap — double-tap detected
@@ -154,7 +162,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               const touch = e.changedTouches[0];
               handleZoneAction(touch.clientX);
-              e.preventDefault();
               lastTapRef.current = 0;
             } else {
               lastTapRef.current = now;
