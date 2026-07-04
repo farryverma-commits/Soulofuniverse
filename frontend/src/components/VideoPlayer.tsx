@@ -18,6 +18,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
   const lastTapRef = useRef<number>(0);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seekIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -43,7 +44,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         videoElement,
         {
           ...options,
-          userActions: { ...options.userActions, doubleClick: false },
+          userActions: {
+            ...options.userActions,
+            click: false,
+            doubleClick: false,
+          },
         },
         () => {
           videojs.log("player is ready");
@@ -60,53 +65,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           // Double-tap / double-click to seek — works on both mobile and desktop
           const playerEl = playerRef.current.el();
 
-          const seekBySide = (clientX: number) => {
-            if (playerRef.current.paused()) return;
-            const rect = playerEl.getBoundingClientRect();
-            const x = clientX - rect.left;
-
-            if (x < rect.width / 2) {
-              playerRef.current.currentTime(
-                Math.max(0, playerRef.current.currentTime() - 10),
-              );
-              setSeekIndicator("backward");
+          const handleFullscreenToggle = () => {
+            if (playerRef.current.isFullscreen()) {
+              playerRef.current.exitFullscreen();
             } else {
-              playerRef.current.currentTime(
-                Math.min(
-                  playerRef.current.duration(),
-                  playerRef.current.currentTime() + 10,
-                ),
-              );
-              setSeekIndicator("forward");
-            }
-            if (seekIndicatorTimeoutRef.current)
-              clearTimeout(seekIndicatorTimeoutRef.current);
-            seekIndicatorTimeoutRef.current = setTimeout(
-              () => setSeekIndicator(null),
-              600,
-            );
-          };
-
-          // Mobile: double-tap via touchend
-          const onTouchEnd = (e: TouchEvent) => {
-            if (playerRef.current.paused()) return;
-            const now = Date.now();
-            if (now - lastTapRef.current < 300) {
-              const touch = e.changedTouches[0];
-              seekBySide(touch.clientX);
-              e.preventDefault();
-              lastTapRef.current = 0;
-            } else {
-              lastTapRef.current = now;
+              playerRef.current.requestFullscreen();
             }
           };
 
-          // Desktop: double-click with three zones
-          // Left 35% → backward seek, Right 35% → forward seek, Center 30% → fullscreen
-          const onDblClick = (e: MouseEvent) => {
-            if (playerRef.current.paused()) return;
+          const handlePlayPause = () => {
+            if (playerRef.current.paused()) {
+              playerRef.current.play();
+            } else {
+              playerRef.current.pause();
+            }
+          };
+
+          const handleZoneAction = (clientX: number) => {
             const rect = playerEl.getBoundingClientRect();
-            const x = (e.clientX - rect.left) / rect.width;
+            const x = (clientX - rect.left) / rect.width;
 
             if (x < 0.35) {
               // Left zone — backward seek
@@ -136,20 +113,64 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 600,
               );
             } else {
-              // Center zone — toggle fullscreen
-              if (playerRef.current.isFullscreen()) {
-                playerRef.current.exitFullscreen();
-              } else {
-                playerRef.current.requestFullscreen();
-              }
+              // Center zone — toggle fullscreen (always works, even when paused)
+              handleFullscreenToggle();
             }
           };
 
+          // Desktop: click-to-toggle play/pause with debounce to detect double-click
+          const onClick = (e: MouseEvent) => {
+            // Ignore clicks on control bar children
+            const target = e.target as HTMLElement;
+            if (target.closest(".vjs-control-bar")) return;
+
+            const now = Date.now();
+            if (now - lastTapRef.current < 300) {
+              // Double-click detected — run zone action instead of play/pause
+              if (clickTimerRef.current) {
+                clearTimeout(clickTimerRef.current);
+                clickTimerRef.current = null;
+              }
+              handleZoneAction(e.clientX);
+              lastTapRef.current = 0;
+            } else {
+              lastTapRef.current = now;
+              // Schedule single-click play/pause; canceled if double-click arrives
+              clickTimerRef.current = setTimeout(() => {
+                handlePlayPause();
+                clickTimerRef.current = null;
+              }, 300);
+            }
+          };
+
+          // Mobile: double-tap via touchend
+          const onTouchEnd = (e: TouchEvent) => {
+            const now = Date.now();
+            if (now - lastTapRef.current < 300) {
+              // Second tap — double-tap detected
+              if (clickTimerRef.current) {
+                clearTimeout(clickTimerRef.current);
+                clickTimerRef.current = null;
+              }
+              const touch = e.changedTouches[0];
+              handleZoneAction(touch.clientX);
+              e.preventDefault();
+              lastTapRef.current = 0;
+            } else {
+              lastTapRef.current = now;
+              // Schedule single-tap play/pause; canceled if second tap arrives
+              clickTimerRef.current = setTimeout(() => {
+                handlePlayPause();
+                clickTimerRef.current = null;
+              }, 300);
+            }
+          };
+
+          playerEl.addEventListener("click", onClick);
           playerEl.addEventListener("touchend", onTouchEnd);
-          playerEl.addEventListener("dblclick", onDblClick);
           cleanupTapRef.current = () => {
+            playerEl.removeEventListener("click", onClick);
             playerEl.removeEventListener("touchend", onTouchEnd);
-            playerEl.removeEventListener("dblclick", onDblClick);
           };
 
           onReady && onReady(playerRef.current);
@@ -178,6 +199,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return () => {
       if (cleanupTapRef.current) cleanupTapRef.current();
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
       if (seekIndicatorTimeoutRef.current)
         clearTimeout(seekIndicatorTimeoutRef.current);
       if (player && !player.isDisposed()) {
@@ -205,10 +227,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           background: linear-gradient(transparent, rgba(10, 10, 20, 0.92)) !important;
           height: 60px !important;
           display: flex !important;
-          padding: 0 16px !important;
+          padding-top: 0 !important;
           padding-bottom: env(safe-area-inset-bottom, 0px) !important;
-          padding-left: max(1px, env(safe-area-inset-left)) !important;
-          padding-right: max(1px, env(safe-area-inset-right)) !important;
+          padding-left: max(8px, env(safe-area-inset-left)) !important;
+          padding-right: max(8px, env(safe-area-inset-right)) !important;
           align-items: center !important;
           transition: opacity 0.35s ease, visibility 0.35s ease !important;
           border-top: 1px solid rgba(212, 168, 83, 0.06) !important;
