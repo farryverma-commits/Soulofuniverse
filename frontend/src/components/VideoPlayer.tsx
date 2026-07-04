@@ -18,10 +18,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
   const lastTapRef = useRef<number>(0);
-  const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const cleanupTapRef = useRef<(() => void) | null>(null);
 
-  const [seekIndicator, setSeekIndicator] = useState<"forward" | "backward" | null>(null);
+  const [seekIndicator, setSeekIndicator] = useState<
+    "forward" | "backward" | null
+  >(null);
 
   useEffect(() => {
     // Make sure Video.js player is only initialized once
@@ -35,86 +39,122 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         videoRef.current.appendChild(videoElement);
       }
 
-      const player = (playerRef.current = videojs(videoElement, { ...options, userActions: { ...options.userActions, doubleClick: false } }, () => {
-        videojs.log("player is ready");
+      const player = (playerRef.current = videojs(
+        videoElement,
+        {
+          ...options,
+          userActions: { ...options.userActions, doubleClick: false },
+        },
+        () => {
+          videojs.log("player is ready");
 
-        // Initialize HLS quality selector
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((playerRef.current as any).hlsQualitySelector) {
+          // Initialize HLS quality selector
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (playerRef.current as any).hlsQualitySelector({
-            displayCurrentQuality: true,
-          });
-        }
-
-        // Double-tap / double-click to seek — works on both mobile and desktop
-        const playerEl = playerRef.current.el();
-
-        const seekBySide = (clientX: number) => {
-          if (playerRef.current.paused()) return;
-          const rect = playerEl.getBoundingClientRect();
-          const x = clientX - rect.left;
-
-          if (x < rect.width / 2) {
-            playerRef.current.currentTime(Math.max(0, playerRef.current.currentTime() - 10));
-            setSeekIndicator("backward");
-          } else {
-            playerRef.current.currentTime(Math.min(playerRef.current.duration(), playerRef.current.currentTime() + 10));
-            setSeekIndicator("forward");
+          if ((playerRef.current as any).hlsQualitySelector) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (playerRef.current as any).hlsQualitySelector({
+              displayCurrentQuality: true,
+            });
           }
-          setTimeout(() => setSeekIndicator(null), 600);
-        };
 
-        // Mobile: double-tap via touchend
-        const onTouchEnd = (e: TouchEvent) => {
-          if (playerRef.current.paused()) return;
-          const now = Date.now();
-          if (now - lastTapRef.current < 300) {
-            const touch = e.changedTouches[0];
-            seekBySide(touch.clientX);
-            e.preventDefault();
-            lastTapRef.current = 0;
-          } else {
-            lastTapRef.current = now;
-          }
-        };
+          // Double-tap / double-click to seek — works on both mobile and desktop
+          const playerEl = playerRef.current.el();
 
-        // Desktop: double-click with three zones
-        // Left 35% → backward seek, Right 35% → forward seek, Center 30% → fullscreen
-        const onDblClick = (e: MouseEvent) => {
-          if (playerRef.current.paused()) return;
-          const rect = playerEl.getBoundingClientRect();
-          const x = (e.clientX - rect.left) / rect.width;
+          const seekBySide = (clientX: number) => {
+            if (playerRef.current.paused()) return;
+            const rect = playerEl.getBoundingClientRect();
+            const x = clientX - rect.left;
 
-          if (x < 0.35) {
-            // Left zone — backward seek
-            playerRef.current.currentTime(Math.max(0, playerRef.current.currentTime() - 10));
-            setSeekIndicator("backward");
-            setTimeout(() => setSeekIndicator(null), 600);
-          } else if (x > 0.65) {
-            // Right zone — forward seek
-            playerRef.current.currentTime(Math.min(playerRef.current.duration(), playerRef.current.currentTime() + 10));
-            setSeekIndicator("forward");
-            setTimeout(() => setSeekIndicator(null), 600);
-          } else {
-            // Center zone — toggle fullscreen
-            if (playerRef.current.isFullscreen()) {
-              playerRef.current.exitFullscreen();
+            if (x < rect.width / 2) {
+              playerRef.current.currentTime(
+                Math.max(0, playerRef.current.currentTime() - 10),
+              );
+              setSeekIndicator("backward");
             } else {
-              playerRef.current.requestFullscreen();
+              playerRef.current.currentTime(
+                Math.min(
+                  playerRef.current.duration(),
+                  playerRef.current.currentTime() + 10,
+                ),
+              );
+              setSeekIndicator("forward");
             }
-          }
-        };
+            if (seekIndicatorTimeoutRef.current)
+              clearTimeout(seekIndicatorTimeoutRef.current);
+            seekIndicatorTimeoutRef.current = setTimeout(
+              () => setSeekIndicator(null),
+              600,
+            );
+          };
 
-        playerEl.addEventListener("touchend", onTouchEnd);
-        playerEl.addEventListener("dblclick", onDblClick);
-        cleanupTapRef.current = () => {
-          playerEl.removeEventListener("touchend", onTouchEnd);
-          playerEl.removeEventListener("dblclick", onDblClick);
-        };
+          // Mobile: double-tap via touchend
+          const onTouchEnd = (e: TouchEvent) => {
+            if (playerRef.current.paused()) return;
+            const now = Date.now();
+            if (now - lastTapRef.current < 300) {
+              const touch = e.changedTouches[0];
+              seekBySide(touch.clientX);
+              e.preventDefault();
+              lastTapRef.current = 0;
+            } else {
+              lastTapRef.current = now;
+            }
+          };
 
-        onReady && onReady(playerRef.current);
-      }));
+          // Desktop: double-click with three zones
+          // Left 35% → backward seek, Right 35% → forward seek, Center 30% → fullscreen
+          const onDblClick = (e: MouseEvent) => {
+            if (playerRef.current.paused()) return;
+            const rect = playerEl.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+
+            if (x < 0.35) {
+              // Left zone — backward seek
+              playerRef.current.currentTime(
+                Math.max(0, playerRef.current.currentTime() - 10),
+              );
+              setSeekIndicator("backward");
+              if (seekIndicatorTimeoutRef.current)
+                clearTimeout(seekIndicatorTimeoutRef.current);
+              seekIndicatorTimeoutRef.current = setTimeout(
+                () => setSeekIndicator(null),
+                600,
+              );
+            } else if (x > 0.65) {
+              // Right zone — forward seek
+              playerRef.current.currentTime(
+                Math.min(
+                  playerRef.current.duration(),
+                  playerRef.current.currentTime() + 10,
+                ),
+              );
+              setSeekIndicator("forward");
+              if (seekIndicatorTimeoutRef.current)
+                clearTimeout(seekIndicatorTimeoutRef.current);
+              seekIndicatorTimeoutRef.current = setTimeout(
+                () => setSeekIndicator(null),
+                600,
+              );
+            } else {
+              // Center zone — toggle fullscreen
+              if (playerRef.current.isFullscreen()) {
+                playerRef.current.exitFullscreen();
+              } else {
+                playerRef.current.requestFullscreen();
+              }
+            }
+          };
+
+          playerEl.addEventListener("touchend", onTouchEnd);
+          playerEl.addEventListener("dblclick", onDblClick);
+          cleanupTapRef.current = () => {
+            playerEl.removeEventListener("touchend", onTouchEnd);
+            playerEl.removeEventListener("dblclick", onDblClick);
+          };
+
+          onReady && onReady(playerRef.current);
+        },
+      ));
     } else {
       const player = playerRef.current;
 
@@ -138,7 +178,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return () => {
       if (cleanupTapRef.current) cleanupTapRef.current();
-      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+      if (seekIndicatorTimeoutRef.current)
+        clearTimeout(seekIndicatorTimeoutRef.current);
       if (player && !player.isDisposed()) {
         player.dispose();
         playerRef.current = null;
@@ -166,8 +207,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           display: flex !important;
           padding: 0 16px !important;
           padding-bottom: env(safe-area-inset-bottom, 0px) !important;
-          padding-left: max(16px, env(safe-area-inset-left)) !important;
-          padding-right: max(16px, env(safe-area-inset-right)) !important;
+          padding-left: max(1px, env(safe-area-inset-left)) !important;
+          padding-right: max(1px, env(safe-area-inset-right)) !important;
           align-items: center !important;
           transition: opacity 0.35s ease, visibility 0.35s ease !important;
           border-top: 1px solid rgba(212, 168, 83, 0.06) !important;
@@ -181,7 +222,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         /* ---- Icon sizing ---- */
         .vjs-theme-youtube .vjs-button > .vjs-icon-placeholder:before,
-        .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value,
         .vjs-theme-youtube .vjs-menu-button-popup .vjs-icon-placeholder:before {
           font-family: VideoJS !important;
           font-size: 22px !important;
@@ -212,18 +252,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         /* Time display */
         .vjs-theme-youtube .vjs-current-time,
         .vjs-theme-youtube .vjs-duration {
+          display: flex !important;
+          align-items: center !important;
           font-size: 13px !important;
           font-weight: 500;
           padding: 0 4px !important;
           min-width: auto !important;
+          line-height: 60px !important;
           color: rgba(240, 237, 245, 0.7) !important;
         }
 
         .vjs-theme-youtube .vjs-time-divider {
+          display: flex !important;
+          align-items: center !important;
           font-size: 13px !important;
           padding: 0 2px !important;
           color: rgba(240, 237, 245, 0.3) !important;
           min-width: auto !important;
+          line-height: 60px !important;
         }
 
         /* Spacer */
@@ -243,17 +289,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           align-items: center !important;
           justify-content: center !important;
           width: 44px !important;
+          line-height: 60px !important;
         }
 
-        .vjs-theme-youtube .vjs-quality-selector .vjs-menu-button-popup .vjs-icon-placeholder:before {
+        .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value {
+          font-size: 13px !important;
+          font-weight: 500;
+          line-height: 60px !important;
+        }
+
+        .vjs-theme-youtube .vjs-quality-selector.vjs-menu-button-popup .vjs-icon-placeholder:before {
           content: "\f110" !important;
         }
 
         /* ---- Progress bar ---- */
         .vjs-theme-youtube .vjs-progress-control {
           position: absolute !important;
-          width: calc(100% - 32px) !important;
-          left: 16px !important;
+          width: 100% !important;
+          left: 0 !important;
           top: -10px !important;
           height: 20px !important;
           display: flex !important;
@@ -300,12 +353,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         /* ---- Volume ---- */
-        .vjs-theme-youtube .vjs-volume-level {
-          background-color: #D4A853 !important;
-        }
-
         .vjs-theme-youtube .vjs-volume-panel {
           transition: width 0.25s ease !important;
+          align-items: center !important;
+        }
+
+        .vjs-theme-youtube .vjs-mute-control {
+          line-height: 60px !important;
+        }
+
+        .vjs-theme-youtube .vjs-volume-control.vjs-volume-horizontal {
+          height: 60px !important;
+          display: flex !important;
+          align-items: center !important;
+        }
+
+        .vjs-theme-youtube .vjs-volume-bar.vjs-slider-horizontal {
+          margin: 0 0.45em !important;
+        }
+
+        .vjs-theme-youtube .vjs-volume-level {
+          background-color: #D4A853 !important;
         }
 
         .vjs-theme-youtube .vjs-volume-panel.vjs-hover {
@@ -388,9 +456,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
 
           .vjs-theme-youtube .vjs-button > .vjs-icon-placeholder:before,
-          .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value,
           .vjs-theme-youtube .vjs-menu-button-popup .vjs-icon-placeholder:before {
             font-size: 19px !important;
+            line-height: 52px !important;
+          }
+
+          .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value {
+            font-size: 12px !important;
             line-height: 52px !important;
           }
 
@@ -407,8 +479,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
 
           .vjs-theme-youtube .vjs-progress-control {
-            width: calc(100% - 20px) !important;
-            left: 10px !important;
+            width: 100% !important;
+            left: 0 !important;
             top: -10px !important;
             height: 22px !important;
           }
@@ -466,9 +538,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
 
           .vjs-theme-youtube .vjs-button > .vjs-icon-placeholder:before,
-          .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value,
           .vjs-theme-youtube .vjs-menu-button-popup .vjs-icon-placeholder:before {
             font-size: 17px !important;
+            line-height: 48px !important;
+          }
+
+          .vjs-theme-youtube .vjs-playback-rate .vjs-playback-rate-value {
+            font-size: 11px !important;
             line-height: 48px !important;
           }
 
@@ -515,9 +591,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         .vjs-theme-youtube.vjs-fullscreen .vjs-button > .vjs-icon-placeholder:before,
-        .vjs-theme-youtube.vjs-fullscreen .vjs-playback-rate .vjs-playback-rate-value,
         .vjs-theme-youtube.vjs-fullscreen .vjs-menu-button-popup .vjs-icon-placeholder:before {
           font-size: 24px !important;
+          line-height: 68px !important;
+        }
+
+        .vjs-theme-youtube.vjs-fullscreen .vjs-playback-rate .vjs-playback-rate-value {
+          font-size: 14px !important;
           line-height: 68px !important;
         }
 
@@ -537,8 +617,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         .vjs-theme-youtube.vjs-fullscreen .vjs-progress-control {
-          width: calc(100% - 48px) !important;
-          left: 24px !important;
+          width: 100% !important;
+          left: 0 !important;
           top: -12px !important;
           height: 24px !important;
         }

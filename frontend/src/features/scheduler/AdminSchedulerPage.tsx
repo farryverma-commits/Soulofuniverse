@@ -14,7 +14,7 @@ import {
 import { OrbitalLoader } from "../../components/OrbitalLoader";
 import { supabase } from "../../services/supabaseClient";
 import { useSelector } from "react-redux";
-import { RootState } from "../../store";
+import type { RootState } from "../../store";
 
 interface Availability {
   id: string;

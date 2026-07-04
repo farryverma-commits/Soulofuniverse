@@ -321,7 +321,15 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
               <div className="space-y-1">
-                {participants.map((p, i) => {
+                {(() => {
+                  const sortedParticipants = [...participants].sort((a, b) => {
+                    if (a.isMicrophoneEnabled !== b.isMicrophoneEnabled) {
+                      return a.isMicrophoneEnabled ? -1 : 1;
+                    }
+                    if (a.isLocal !== b.isLocal) return a.isLocal ? -1 : 1;
+                    return (a.name || a.identity || "").localeCompare(b.name || b.identity || "");
+                  });
+                  return sortedParticipants.map((p, i) => {
                   const pMetadata = participantMeta.get(p.identity) || {};
                   const isPublishingVideo = p.isCameraEnabled;
 
@@ -337,6 +345,26 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                         <span className="text-sm text-gray-200 font-medium leading-tight">
                           {p.name || p.identity || "Anonymous"}
                         </span>
+                        {isMentor && !p.isLocal && p.isMicrophoneEnabled && (
+                          <button
+                            onClick={async () => {
+                              const encoder = new TextEncoder();
+                              const data = encoder.encode(
+                                JSON.stringify({
+                                  action: "MUTE_USER",
+                                  target: p.identity,
+                                }),
+                              );
+                              await localParticipant.publishData(data, {
+                                reliable: true,
+                              });
+                            }}
+                            className="ml-auto p-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500/40 transition-colors"
+                            title="Mute"
+                          >
+                            <MicOff className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {p.isLocal && (
                           <span className="ml-auto text-[8px] bg-white/10 px-1.5 py-0.5 rounded text-gray-400 uppercase font-black">
                             You
@@ -344,20 +372,8 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                         )}
                       </div>
 
-                      {/* Mini Video Tile if publishing and not main speaker */}
-                      {/* {isPublishingVideo && !p.isLocal && (
-                        <div className="w-full aspect-video rounded-lg overflow-hidden border border-white/10 bg-black/40 mt-1">
-                          <VideoTrack
-                            trackRef={cameraTracks.find(
-                              (t) => t.participant.identity === p.identity,
-                            )}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )} */}
-
                       {isMentor && !p.isLocal && pMetadata.handRaised && (
-                        <div className="flex items-center gap-2 mt-1 pt-1 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-2 mt-1 pt-1 border-t border-white/5 transition-opacity">
                           <button
                             onClick={async () => {
                               const encoder = new TextEncoder();
@@ -379,7 +395,8 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                       )}
                     </div>
                   );
-                })}
+                });
+              })()}
               </div>
             </div>
           </div>

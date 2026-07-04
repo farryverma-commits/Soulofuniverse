@@ -3,7 +3,7 @@ import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2, ChevronRight
 import { OrbitalLoader } from '../../components/OrbitalLoader'
 import { supabase } from '../../services/supabaseClient'
 import { useSelector } from 'react-redux'
-import { RootState } from '../../store'
+import type { RootState } from '../../store'
 
 interface Mentor {
   id: string

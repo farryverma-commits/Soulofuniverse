@@ -173,6 +173,10 @@ function MyVideoConference({
   // const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [unreadChat, setUnreadChat] = useState(0);
+  const [lastSeenChatCount, setLastSeenChatCount] = useState(
+    chatMessages.length,
+  );
 
   // Restore recording state from DB on mount (handles page refresh mid-recording)
   // useEffect(() => {
@@ -246,6 +250,24 @@ function MyVideoConference({
     return () =>
       document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
+
+  // Track unread chat messages — only counts messages that arrived
+  // while user wasn't looking at the chat tab
+  useEffect(() => {
+    const unread = chatMessages.length - lastSeenChatCount;
+    if (unread > 0 && (!showSidebar || sidebarTab !== "chat")) {
+      setUnreadChat(unread);
+    }
+  }, [chatMessages.length, lastSeenChatCount, showSidebar, sidebarTab]);
+
+  // Mark messages as seen when user opens the chat tab or when new messages
+  // arrive while the chat tab is already open
+  useEffect(() => {
+    if (showSidebar && sidebarTab === "chat") {
+      setLastSeenChatCount(chatMessages.length);
+      setUnreadChat(0);
+    }
+  }, [showSidebar, sidebarTab, chatMessages.length]);
 
   const tracks = useTracks(
     [
@@ -362,6 +384,10 @@ function MyVideoConference({
               raisedAt: null,
             };
             await localParticipant.setMetadata(JSON.stringify(newMetadata));
+          }
+          if (data.action === "MUTE_USER") {
+            devLog("Received MUTE_USER command from mentor");
+            await localParticipant.setMicrophoneEnabled(false);
           }
         }
       } catch (e) {
@@ -528,44 +554,13 @@ function MyVideoConference({
     return tracks.filter((t) => t.source === Track.Source.Camera);
   }, [tracks]);
 
-  // Active speakers + recent speakers (sticky — doesn't disappear on brief pause)
-  // Falls back to showing any non-local participants when nobody has spoken yet
+  // Active speakers — only participants currently speaking
   const activeSpeakers = useMemo(() => {
     const localId = localParticipant?.identity;
     // Exclude local user AND mentor (already pinned in main view)
-    const nonLocal = allParticipants.filter(
-      (p) => p.identity !== localId && p.identity !== mentorId,
+    return allParticipants.filter(
+      (p) => p.identity !== localId && p.identity !== mentorId && p.isSpeaking,
     );
-
-    // Currently speaking first
-    const speaking = nonLocal
-      .filter((p) => p.isSpeaking)
-      .sort(
-        (a, b) =>
-          (b.lastSpokeAt?.getTime() || 0) - (a.lastSpokeAt?.getTime() || 0),
-      );
-
-    // Recently spoke (not currently speaking) — fill remaining slots
-    const spokenIds = new Set(speaking.map((p) => p.identity));
-    const recent = nonLocal
-      .filter(
-        (p) => p.lastSpokeAt && !p.isSpeaking && !spokenIds.has(p.identity),
-      )
-      .sort(
-        (a, b) =>
-          (b.lastSpokeAt!.getTime() || 0) - (a.lastSpokeAt!.getTime() || 0),
-      );
-
-    const maxItems = 6;
-    const recentSlots = maxItems - speaking.length;
-    const result = [...speaking, ...recent.slice(0, recentSlots)];
-
-    // Still empty? Show any non-local participants so the strip is never blank
-    if (result.length === 0) {
-      return nonLocal.slice(0, maxItems);
-    }
-
-    return result;
   }, [allParticipants, localParticipant?.identity, mentorId]);
 
   // Non-local participants for grid mode
@@ -574,9 +569,9 @@ function MyVideoConference({
   // }, [allParticipants]);
 
   // Listener count: non-local participants not currently speaking
-  const listenerCount = useMemo(() => {
-    return allParticipants.filter((p) => !p.isLocal && !p.isSpeaking).length;
-  }, [allParticipants]);
+  // const listenerCount = useMemo(() => {
+  //   return allParticipants.filter((p) => !p.isLocal && !p.isSpeaking).length;
+  // }, [allParticipants]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -587,7 +582,7 @@ function MyVideoConference({
       screenShareTrackFound: !!screenShareTrack,
       mainTrackParticipant: mainTrack?.participant?.identity,
       activeSpeakerCount: activeSpeakers.length,
-      listenerCount,
+      // listenerCount,
       allIdentities: allParticipants.map((p) => p.identity),
     });
   }, [
@@ -597,7 +592,7 @@ function MyVideoConference({
     screenShareTrack,
     mainTrack,
     activeSpeakers,
-    listenerCount,
+    //listenerCount,
     allParticipants,
   ]);
 
@@ -708,11 +703,11 @@ function MyVideoConference({
                         );
                       })}
                     </div>
-                    {listenerCount > 0 && (
+                    {/* {listenerCount > 0 && (
                       <div className="absolute top-1 right-3 text-[9px] font-bold text-white/40 bg-black/50 px-2 py-0.5 rounded-full">
                         {listenerCount} listening
                       </div>
-                    )}
+                    )} */}
                   </div>
                 )}
               </div>
@@ -748,6 +743,24 @@ function MyVideoConference({
               />
 
               <div className="relative">
+                <ControlActionButton
+                  onClick={() => {
+                    setSidebarTab("chat");
+                    setShowSidebar(true);
+                    setShowMoreMenu(false);
+                    setUnreadChat(0);
+                  }}
+                  icon={<MessageSquare className="w-5 h-5" />}
+                  minimal={true}
+                />
+                {unreadChat > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[20px] bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 shadow-lg border-2 border-[#1A1A1A] z-10">
+                    {unreadChat > 99 ? "99+" : unreadChat}
+                  </span>
+                )}
+              </div>
+
+              <div className="relative">
                 <button
                   onClick={() => setShowMoreMenu(!showMoreMenu)}
                   className={`w-11 h-14 rounded-full flex flex-col items-center justify-center transition-all bg-white/10 hover:bg-white/20 active:scale-95 ${showMoreMenu ? "bg-white/20" : ""}`}
@@ -763,7 +776,7 @@ function MyVideoConference({
                       </span>
                     </div>
                     <div className="py-2">
-                      <button
+                      {/* <button
                         onClick={() => {
                           setSidebarTab("chat");
                           setShowSidebar(true);
@@ -778,11 +791,11 @@ function MyVideoConference({
                           <span className="text-sm font-bold text-gray-200">
                             Chat
                           </span>
-                          {/* <span className="text-[10px] text-gray-500">
+                          { <span className="text-[10px] text-gray-500">
                             Send messages to all
-                          </span> */}
+                          </span> }
                         </div>
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => {
                           setSidebarTab("participants");
@@ -998,10 +1011,12 @@ function MyVideoConference({
                         setSidebarTab("chat");
                         setShowSidebar(true);
                       }
+                      setUnreadChat(0);
                     }}
                     icon={<MessageSquare className="w-5 h-5" />}
                     label="Chat"
                     isActive={showSidebar && sidebarTab === "chat"}
+                    badge={unreadChat > 0 ? unreadChat : undefined}
                   />
 
                   <ControlActionButton
@@ -1217,12 +1232,13 @@ function MyVideoConference({
       </div>
     </LayoutContextProvider>
   );
-
 }
 
 // Moved to module level — defining these inside MyVideoConference caused them to be
 // recreated on every render, which made React unmount/remount VideoTrack (flicker).
-const CustomParticipantTile = React.memo(function CustomParticipantTile(props: any) {
+const CustomParticipantTile = React.memo(function CustomParticipantTile(
+  props: any,
+) {
   let contextTrack: any;
   try {
     contextTrack = useTrackRefContext();
@@ -1410,6 +1426,7 @@ function ControlActionButton({
   isActive,
   activeColor = "text-white",
   minimal,
+  badge,
 }: any) {
   if (minimal) {
     return (
@@ -1421,8 +1438,13 @@ function ControlActionButton({
             : "bg-white/10 hover:bg-white/20 text-white"
         }`}
       >
-        <div className="transition-transform duration-200 group-hover:scale-110">
+        <div className="relative transition-transform duration-200 group-hover:scale-110">
           {icon}
+          {badge && (
+            <span className="absolute -top-2 -right-2 min-w-[16px] h-[18px] bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 shadow-lg border-2 border-surface-dark z-10">
+              {badge > 99 ? "99+" : badge}
+            </span>
+          )}
         </div>
       </button>
     );
@@ -1433,10 +1455,15 @@ function ControlActionButton({
       onClick={onClick}
       className={`px-2 py-2 md:px-4 md:py-3 rounded-2xl flex flex-col items-center gap-1 md:gap-1.5 transition-all hover:bg-white/10 min-w-[50px] md:min-w-[80px] group ${isActive ? "bg-white/15 shadow-inner" : ""}`}
     >
-      <div
-        className={`transition-transform duration-200 group-hover:scale-110 ${isActive ? activeColor : "text-gray-100"}`}
-      >
-        {icon}
+      <div className="relative transition-transform duration-200 group-hover:scale-110">
+        <div className={`${isActive ? activeColor : "text-gray-100"}`}>
+          {icon}
+        </div>
+        {badge && (
+          <span className="absolute -top-2 -right-2 min-w-[16px] h-[18px] bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 shadow-lg border-2 border-[#121212] z-10">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </div>
       <span
         className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.15em] transition-colors ${isActive ? activeColor : "text-gray-400"}`}

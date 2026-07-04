@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalParticipant } from "@livekit/components-react";
-import { Send } from "lucide-react";
+import { ArrowDown, Send } from "lucide-react";
 
 interface ChatMessage {
   message: string;
@@ -19,6 +19,8 @@ interface PersistentChatProps {
   localParticipantIdentity?: string;
 }
 
+const SCROLL_NEAR_BOTTOM_THRESHOLD = 80;
+
 export const PersistentChat: React.FC<PersistentChatProps> = ({
   messages,
   onSendMessage,
@@ -26,36 +28,60 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
   localParticipantIdentity: propIdentity,
 }) => {
   const [input, setInput] = useState("");
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const { localParticipant } = useLocalParticipant();
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessageCountRef = useRef(messages.length);
 
-  // Use the passed identity prop if available, otherwise fall back to the hook
   const myIdentity = propIdentity ?? localParticipant?.identity ?? "";
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages]);
-
-  // Diagnostic logging
-  useEffect(() => {
-    console.log(
-      "[PersistentChat] localParticipant identity:",
-      localParticipant?.identity,
-    );
-    console.log("[PersistentChat] messages count:", messages.length);
-    messages.forEach((msg, i) => {
-      console.log(
-        `[PersistentChat] msg[${i}] from:`,
-        msg.from?.identity,
-        "isMe:",
-        localParticipant?.identity &&
-          msg.from?.identity === localParticipant?.identity,
-      );
+  const scrollToBottom = useCallback((smooth = true) => {
+    chatEndRef.current?.scrollIntoView({
+      behavior: smooth ? "smooth" : "auto",
     });
-  }, [messages, localParticipant]);
+    setShowScrollButton(false);
+    setNewMessageCount(0);
+    isNearBottomRef.current = true;
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nearBottom = distanceFromBottom < SCROLL_NEAR_BOTTOM_THRESHOLD;
+
+    isNearBottomRef.current = nearBottom;
+
+    if (nearBottom) {
+      setShowScrollButton(false);
+      setNewMessageCount(0);
+    }
+  }, []);
+
+  // Smart auto-scroll: only scroll when already near the bottom.
+  // If the user scrolled up to read history, show a "new messages" button instead.
+  useEffect(() => {
+    const delta = messages.length - prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    if (isNearBottomRef.current) {
+      scrollToBottom();
+    } else if (delta > 0) {
+      // User is reading history — show button instead of auto-scrolling
+      setShowScrollButton(true);
+      setNewMessageCount((c) => c + delta);
+    }
+  }, [messages.length, scrollToBottom]);
+
+  // Scroll to bottom on first mount (when chat opens)
+  useEffect(() => {
+    scrollToBottom(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (e?: React.FormEvent | React.KeyboardEvent) => {
     if (e) e.preventDefault();
@@ -65,6 +91,9 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
     try {
       await onSendMessage(text);
       setInput("");
+      // Force scroll to bottom after own message
+      isNearBottomRef.current = true;
+      scrollToBottom();
     } catch (err) {
       console.error("Failed to send message:", err);
     }
@@ -72,22 +101,13 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#0F0F10] w-full">
-      {/* Chat Header with Counter */}
-      {/* <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 backdrop-blur-sm">
-        <h3 className="text-sm font-semibold text-white/90">Chat Session</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-medium">
-            Live
-          </span>
-          <span className="text-[10px] bg-white/10 text-white/40 px-2 py-0.5 rounded-full">
-            {messages.length} messages
-          </span>
-        </div>
-      </div> */}
-
       {/* Messages List */}
       <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden bg-black/40">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar scroll-smooth">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar scroll-smooth"
+        >
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50 px-6 text-center">
               <p className="text-xs font-medium mb-1">No messages yet</p>
@@ -125,6 +145,19 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
           )}
           <div ref={chatEndRef} className="h-2 w-full" />
         </div>
+
+        {/* "New messages" floating button */}
+        {showScrollButton && (
+          <button
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-primary text-white text-xs font-bold px-4 py-2 rounded-full shadow-xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+            {newMessageCount > 1
+              ? `${newMessageCount} new messages`
+              : "New message"}
+          </button>
+        )}
       </div>
 
       {/* Input Form */}
@@ -132,7 +165,9 @@ export const PersistentChat: React.FC<PersistentChatProps> = ({
         onSubmit={handleSend}
         className="p-3 pb-safe border-t border-white/5 bg-black/20 flex gap-2"
       >
-        <label htmlFor="chat-message-input" className="sr-only">Chat message</label>
+        <label htmlFor="chat-message-input" className="sr-only">
+          Chat message
+        </label>
         <input
           id="chat-message-input"
           type="text"

@@ -1,6 +1,6 @@
 import { supabase } from '../../services/supabaseClient'
 
-export const signInWithGoogle = async (role: 'student' | 'admin' = 'student') => {
+export const signInWithGoogle = async () => {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
@@ -9,9 +9,6 @@ export const signInWithGoogle = async (role: 'student' | 'admin' = 'student') =>
         access_type: 'offline',
         prompt: 'select_account',
       },
-      data: {
-        role: role,
-      }
     },
   })
   

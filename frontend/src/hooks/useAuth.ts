@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { supabase } from '../services/supabaseClient'
 import { setAuth, clearAuth } from '../store/authSlice'
-import { RootState } from '../store'
+import type { RootState } from '../store'
 
 export const useAuth = () => {
   const dispatch = useDispatch()
