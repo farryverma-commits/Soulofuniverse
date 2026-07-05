@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import videojs from "video.js";
 import "video.js/dist/video-js.css";
 
@@ -17,8 +18,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
   const videoRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
+  const playerElRef = useRef<HTMLElement | null>(null);
   const lastTapRef = useRef<number>(0);
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seekIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -64,20 +65,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           // Double-tap / double-click to seek — works on both mobile and desktop
           const playerEl = playerRef.current.el();
+          playerElRef.current = playerEl;
 
           const handleFullscreenToggle = () => {
             if (playerRef.current.isFullscreen()) {
               playerRef.current.exitFullscreen();
             } else {
               playerRef.current.requestFullscreen();
-            }
-          };
-
-          const handlePlayPause = () => {
-            if (playerRef.current.paused()) {
-              playerRef.current.play();
-            } else {
-              playerRef.current.pause();
             }
           };
 
@@ -118,66 +112,55 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           };
 
-          // Desktop: click-to-toggle play/pause with debounce to detect double-click
+          // Desktop: double-click for zone actions (no single-click play/pause)
           const onClick = (e: MouseEvent) => {
-            // Ignore clicks on control bar children
             const target = e.target as HTMLElement;
             if (target.closest(".vjs-control-bar")) return;
 
             const now = Date.now();
             if (now - lastTapRef.current < 300) {
-              // Double-click detected — run zone action instead of play/pause
-              if (clickTimerRef.current) {
-                clearTimeout(clickTimerRef.current);
-                clickTimerRef.current = null;
-              }
               handleZoneAction(e.clientX);
               lastTapRef.current = 0;
             } else {
               lastTapRef.current = now;
-              // Schedule single-click play/pause; canceled if double-click arrives
-              clickTimerRef.current = setTimeout(() => {
-                handlePlayPause();
-                clickTimerRef.current = null;
-              }, 300);
             }
           };
 
-          // Mobile: double-tap via touchend
+          // Mobile: double-tap for zone actions (no single-tap play/pause)
           const onTouchEnd = (e: TouchEvent) => {
-            // Ignore touches on control bar children
             const target = e.target as HTMLElement;
             if (target.closest(".vjs-control-bar")) return;
 
-            // Suppress the browser's synthetic click that follows touchend;
-            // otherwise onClick misreads it as a second tap.
             e.preventDefault();
 
             const now = Date.now();
             if (now - lastTapRef.current < 300) {
-              // Second tap — double-tap detected
-              if (clickTimerRef.current) {
-                clearTimeout(clickTimerRef.current);
-                clickTimerRef.current = null;
-              }
               const touch = e.changedTouches[0];
               handleZoneAction(touch.clientX);
               lastTapRef.current = 0;
             } else {
               lastTapRef.current = now;
-              // Schedule single-tap play/pause; canceled if second tap arrives
-              clickTimerRef.current = setTimeout(() => {
-                handlePlayPause();
-                clickTimerRef.current = null;
-              }, 300);
+            }
+          };
+
+          const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.code === "Space" || e.key === " ") {
+              e.preventDefault();
+              if (playerRef.current.paused()) {
+                playerRef.current.play();
+              } else {
+                playerRef.current.pause();
+              }
             }
           };
 
           playerEl.addEventListener("click", onClick);
           playerEl.addEventListener("touchend", onTouchEnd);
+          playerEl.addEventListener("keydown", handleKeyDown);
           cleanupTapRef.current = () => {
             playerEl.removeEventListener("click", onClick);
             playerEl.removeEventListener("touchend", onTouchEnd);
+            playerEl.removeEventListener("keydown", handleKeyDown);
           };
 
           onReady && onReady(playerRef.current);
@@ -206,7 +189,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return () => {
       if (cleanupTapRef.current) cleanupTapRef.current();
-      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
       if (seekIndicatorTimeoutRef.current)
         clearTimeout(seekIndicatorTimeoutRef.current);
       if (player && !player.isDisposed()) {
@@ -725,7 +707,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           100% { opacity: 0; transform: scale(1.12); }
         }
       `}</style>
-      {seekIndicator && (
+      {seekIndicator && playerElRef.current && createPortal(
         <div
           className={`absolute top-1/2 -translate-y-1/2 pointer-events-none z-10 ${
             seekIndicator === "forward" ? "right-6" : "left-6"
@@ -756,7 +738,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </svg>
             <span className="text-sm font-semibold">10s</span>
           </div>
-        </div>
+        </div>,
+        playerElRef.current
       )}
       <div ref={videoRef} className="w-full h-full" />
     </div>
