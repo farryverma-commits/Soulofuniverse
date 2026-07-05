@@ -145,6 +145,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           const handleKeyDown = (e: KeyboardEvent) => {
             if (e.code === "Space" || e.key === " ") {
+              const target = e.target as HTMLElement;
+              if (target.closest(".vjs-control-bar")) return;
               e.preventDefault();
               if (playerRef.current.paused()) {
                 playerRef.current.play();
