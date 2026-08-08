@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -14,7 +20,14 @@ import {
   useTrackRefContext,
   useParticipants,
 } from "@livekit/components-react";
-import { Track, AudioPresets } from "livekit-client";
+import {
+  Track,
+  AudioPresets,
+  RoomEvent,
+  ConnectionState,
+  ConnectionQuality,
+  DisconnectReason,
+} from "livekit-client";
 import { useNavigate } from "react-router-dom";
 //import "@livekit/components-styles";
 import { supabase } from "../../services/supabaseClient";
@@ -38,6 +51,9 @@ import {
   CircleDot,
   MoreVertical,
   PhoneOff,
+  WifiOff,
+  Wifi,
+  Loader2,
 } from "lucide-react";
 import { OrbitalLoader } from "../OrbitalLoader";
 import { ConferencingSidebar } from "./ConferencingSidebar";
@@ -59,6 +75,8 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   mentorId,
   onDisconnected,
 }) => {
+  const isChromium = !!(window as any).chrome?.runtime;
+
   if (!token || !serverUrl) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -77,11 +95,32 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         onDisconnected={onDisconnected}
         connectOptions={{ autoSubscribe: true }}
         options={{
+          // Keep the SDK retrying for ~80s before giving up (the default policy
+          // exhausts in ~10s), so brief network blips are absorbed at the SDK
+          // level and never reach the app-level auto-rejoin path.
+          reconnectPolicy: {
+            nextRetryDelayInMs: (context: { retryCount: number }) => {
+              if (context.retryCount >= 12) return null;
+              return Math.min(300 * Math.pow(2, context.retryCount), 10_000);
+            },
+          },
           adaptiveStream: { pixelDensity: 1 } as const,
-          dynacast: true,
+          dynacast: isChromium,
+          // Don't hard-drop the room on iOS pagehide/background (screen lock, app
+          // switch, Control Center). The stale-participant cleanup in livekit-get-token
+          // re-admits the mentor on return instead of permanently disconnecting them.
+          disconnectOnPageLeave: false,
+          // Keep local publish tracks alive across interruptions so the SDK can recover
+          // the sender instead of tearing it down (Safari/iPad encoder/media-session drops).
+          stopLocalTrackOnUnpublish: false,
           publishDefaults: {
             audioPreset: AudioPresets.speech,
-            stopMicTrackOnMute: true,
+            // false: keep the MediaStreamTrack alive when muted so unmute always
+            // works (iOS Safari and some Android browsers silently deny the
+            // re-acquisition via getUserMedia after an OS interruption or page
+            // background). Tradeoff: the mic recording indicator stays on while
+            // muted, but this is safer than a broken unmute button.
+            stopMicTrackOnMute: false,
           },
         }}
         className="flex-1 flex flex-col overflow-hidden text-white"
@@ -122,6 +161,562 @@ function MyVideoConference({
   const [sessionStatus, setSessionStatus] = useState<"active" | "ended">(
     "active",
   );
+  const [connState, setConnState] = useState<
+    "connected" | "reconnecting" | "disconnected"
+  >("connected");
+  const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
+  const SHOW_BANNER_DURATION = 15_000;
+
+  // True while the host's connection quality is Lost — fires within seconds of
+  // an abrupt host drop, long before the server's departure_timeout removes
+  // the host's participant (and their frozen camera track) from the room.
+  const [mentorConnectionLost, setMentorConnectionLost] = useState(false);
+
+  // Set when this client was disconnected because another tab/device took over
+  // the identity (DUPLICATE_IDENTITY / PARTICIPANT_REMOVED). Blocks auto-rejoin
+  // so two tabs can't kick each other in an endless ping-pong; the user can
+  // still explicitly rejoin (which then kicks the other side).
+  const [blockedRejoinReason, setBlockedRejoinReason] = useState<string | null>(
+    null,
+  );
+
+  // Auto-rejoin state (host should not have to manually click "Rejoin Session").
+  // Bounded exponential backoff; gives up after MAX_REJOIN_ATTEMPTS and shows a
+  // manual fallback button instead of trapping the host in a reload loop.
+  const rejoinAttemptRef = useRef(0);
+  const MAX_REJOIN_ATTEMPTS = 5;
+  const [rejoinAttempt, setRejoinAttempt] = useState(0);
+  const [autoRejoinFailed, setAutoRejoinFailed] = useState(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against scheduling multiple navigate() calls from repeated end-poll
+  // ticks or unmount-after-end, against an in-flight auto-rejoin completing
+  // after the user already left, and for clearing the pending end timeout.
+  const navigatingRef = useRef(false);
+  const endPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only log "host_reconnected" when a real drop preceded it — the initial
+  // connect also fires ConnectionStateChanged(Connected).
+  const hadDisconnectRef = useRef(false);
+
+  // Audio can only auto-resume after a user gesture (browser autoplay policy).
+  // If programmatic startAudio() fails (no gesture yet, e.g. after an iOS
+  // interruption or auto-rejoin), we surface a "tap to resume audio" affordance
+  // that re-runs startAudio() under a real click/tap.
+  const [audioResumeNeeded, setAudioResumeNeeded] = useState(false);
+  const micWasEnabledRef = useRef(false);
+  const cameraWasEnabledRef = useRef(false);
+  // <audio> elements we re-attached manually after iOS tore down the remote
+  // playback elements during an OS interruption — removed again on unmount.
+  const reattachedElsRef = useRef<HTMLMediaElement[]>([]);
+
+  // Transition from banner to overlay after 15s of reconnection
+  useEffect(() => {
+    if (connState === "reconnecting") {
+      const timer = setTimeout(
+        () => setShowReconnectOverlay(true),
+        SHOW_BANNER_DURATION,
+      );
+      return () => clearTimeout(timer);
+    } else {
+      setShowReconnectOverlay(false);
+    }
+  }, [connState]);
+
+  // Log unexpected disconnects for post-mortem analysis (fire-and-forget).
+  // The reason comes from RoomEvent.Disconnected — DisconnectReason enum names
+  // (e.g. "DUPLICATE_IDENTITY" / "ROOM_DELETED") land in meeting_logs.
+  const logDisconnect = useCallback(
+    async (reason?: DisconnectReason) => {
+      try {
+        const reasonName =
+          reason != null && DisconnectReason[reason] != null
+            ? DisconnectReason[reason]
+            : "unknown";
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) return;
+
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              action: "log_disconnect",
+              payload: {
+                user_id: localParticipant?.identity,
+                is_host: isMentor,
+                reason: reasonName,
+                connection_type:
+                  (navigator as any).connection?.effectiveType || "unknown",
+                user_agent: navigator.userAgent.substring(0, 200),
+                disconnected_at: new Date().toISOString(),
+              },
+            }),
+          },
+        );
+      } catch {
+        /* fire-and-forget */
+      }
+    },
+    [sessionId, isMentor, localParticipant],
+  );
+
+  // Generic DB event logger for critical reconnection lifecycle events
+  // (rejoin attempts, reconnected, etc.) so production post-mortems are possible.
+  const logEvent = useCallback(
+    async (eventType: string, extra: Record<string, any> = {}) => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) return;
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              action: "log_event",
+              payload: {
+                user_id: localParticipant?.identity,
+                is_host: isMentor,
+                event_type: eventType,
+                connection_type:
+                  (navigator as any).connection?.effectiveType || "unknown",
+                user_agent: navigator.userAgent.substring(0, 200),
+                logged_at: new Date().toISOString(),
+                ...extra,
+              },
+            }),
+          },
+        );
+      } catch {
+        /* fire-and-forget */
+      }
+    },
+    [sessionId, isMentor, localParticipant],
+  );
+
+  // Resume audio + re-assert mic/camera after an interruption/reconnect. On
+  // Safari/iOS a phone call, alarm, Siri, or Control Center can suspend the
+  // AudioContext, pause remote playback, and kill the local mic/camera tracks.
+  // startAudio() requires a user gesture; if it rejects we surface a tap affordance.
+  const resumeAudio = useCallback(async () => {
+    // Remember whether mic/camera were on so we can restore them after resume.
+    if (localParticipant) {
+      micWasEnabledRef.current = localParticipant.isMicrophoneEnabled;
+      cameraWasEnabledRef.current = localParticipant.isCameraEnabled;
+    }
+    try {
+      await room.startAudio();
+      // Success (gesture present) — clear any pending affordance.
+      setAudioResumeNeeded(false);
+    } catch {
+      // No user gesture yet (auto-rejoin / mid-interruption): show tap affordance.
+      setAudioResumeNeeded(true);
+    }
+    // Re-assert mic/camera independently of startAudio() — a blocked playback
+    // resume (no gesture yet) must not leave the host's devices silently off.
+    // Only re-enables devices that were on before (students never publish
+    // camera, so this is a no-op for them).
+    if (micWasEnabledRef.current && localParticipant) {
+      try {
+        await localParticipant.setMicrophoneEnabled(true);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (cameraWasEnabledRef.current && localParticipant) {
+      try {
+        await localParticipant.setCameraEnabled(true);
+      } catch {
+        /* ignore — the OS may have taken the camera; the toggle still works */
+      }
+    }
+  }, [room, localParticipant]);
+
+  // Re-create remote <audio> elements if iOS tore them down instead of just
+  // pausing them — startAudio() alone can't recover a destroyed element.
+  // Only attaches when a subscribed audio track has NO elements left, so the
+  // elements managed by <RoomAudioRenderer/> are never touched.
+  const reattachRemoteAudio = useCallback(() => {
+    // Prune elements that are no longer in the DOM (e.g. track unsubscribed).
+    reattachedElsRef.current = reattachedElsRef.current.filter(
+      (el) => el.isConnected,
+    );
+    room.remoteParticipants.forEach((participant) => {
+      participant.audioTrackPublications.forEach((pub) => {
+        const track = pub.track;
+        if (!track || track.attachedElements.length > 0) return;
+        try {
+          const el = track.attach();
+          el.autoplay = true;
+          el.setAttribute("playsinline", "true");
+          el.style.display = "none";
+          document.body.appendChild(el);
+          reattachedElsRef.current.push(el);
+        } catch {
+          /* non-fatal — RoomAudioRenderer still manages its own elements */
+        }
+      });
+    });
+  }, [room]);
+
+  // Runs under a real user click/tap — satisfies the browser autoplay policy so
+  // startAudio() can actually resume remote playback and we can re-enable the mic.
+  const tapToResumeAudio = useCallback(async () => {
+    // Restore any audio elements iOS destroyed during the interruption first.
+    reattachRemoteAudio();
+    try {
+      await room.startAudio();
+      if (micWasEnabledRef.current && localParticipant) {
+        await localParticipant.setMicrophoneEnabled(true);
+      }
+      setAudioResumeNeeded(false);
+    } catch {
+      /* still blocked — keep the affordance visible */
+    }
+  }, [room, localParticipant, reattachRemoteAudio]);
+
+  // Auto-rejoin the same room with a fresh token when the SDK gives up, so the
+  // host does not have to manually click "Rejoin Session". Runs with bounded
+  // backoff; surfaces a manual fallback button only after MAX_REJOIN_ATTEMPTS.
+  const attemptRejoin = useCallback(async () => {
+    if (sessionStatus === "ended" || navigatingRef.current) return;
+    if (rejoinAttemptRef.current >= MAX_REJOIN_ATTEMPTS) {
+      setAutoRejoinFailed(true);
+      return;
+    }
+    rejoinAttemptRef.current += 1;
+    setRejoinAttempt(rejoinAttemptRef.current);
+    logEvent("host_rejoin_attempt", { attempt: rejoinAttemptRef.current });
+
+    try {
+      let {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        // Supabase auth can expire during a long drop (device sleep in a
+        // multi-hour meeting) — try one refresh before giving up this attempt.
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session;
+      }
+      if (!session) {
+        // Still unauthenticated — keep the bounded backoff going so we either
+        // recover or eventually surface the manual fallback, instead of
+        // hanging forever on "Reconnecting automatically…".
+        scheduleRejoin();
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-get-token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ session_id: sessionId }),
+        },
+      );
+
+      if (!response.ok) {
+        // Session no longer live (ended while we were dropped) — stop retrying
+        // and land on the terminal "session ended" state instead of looping
+        // the manual Rejoin button forever.
+        const data = await response.json().catch(() => ({}));
+        if (
+          response.status === 403 ||
+          data?.error?.includes("not live") ||
+          data?.error?.includes("not found")
+        ) {
+          rejoinAttemptRef.current = MAX_REJOIN_ATTEMPTS;
+          setSessionStatus("ended");
+          navigatingRef.current = true;
+          endPollTimerRef.current = setTimeout(() => {
+            room.disconnect();
+            navigate("/", { replace: true });
+          }, 3000);
+          return;
+        }
+        scheduleRejoin();
+        return;
+      }
+
+      const data = await response.json();
+      // The user may have clicked Leave while the token fetch was in flight —
+      // never reconnect a room they already walked away from.
+      if (navigatingRef.current) return;
+      // Reuse the existing room instance — avoids the duplicate-identity reload race.
+      await room.connect(data.server_url, data.participant_token);
+      logEvent("host_rejoined", { attempt: rejoinAttemptRef.current });
+      resumeAudio();
+    } catch {
+      scheduleRejoin();
+    }
+  }, [room, sessionId, sessionStatus]);
+
+  const scheduleRejoin = useCallback(() => {
+    if (rejoinAttemptRef.current >= MAX_REJOIN_ATTEMPTS) {
+      setAutoRejoinFailed(true);
+      return;
+    }
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+    const delay = 2000 * Math.pow(2, rejoinAttemptRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = setTimeout(() => {
+      attemptRejoin();
+    }, delay);
+  }, [attemptRejoin]);
+
+  // Reset rejoin counters once we're connected again.
+  useEffect(() => {
+    if (connState === "connected") {
+      rejoinAttemptRef.current = 0;
+      setRejoinAttempt(0);
+      setAutoRejoinFailed(false);
+      setBlockedRejoinReason(null);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    }
+  }, [connState]);
+
+  // Clean up the pending auto-rejoin timer on unmount so it can't fire
+  // room.connect() on a disconnected/unmounted room after the user leaves.
+  useEffect(() => {
+    return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reattachedElsRef.current.forEach((el) => el.remove());
+      reattachedElsRef.current = [];
+    };
+  }, []);
+
+  // Connection-state → UI state + audio recovery. Disconnect handling (logging,
+  // auto-rejoin, terminal states) lives in the RoomEvent.Disconnected handler
+  // below, which is the only event carrying the DisconnectReason.
+  useEffect(() => {
+    if (!room) return;
+    const handler = (state: ConnectionState) => {
+      setConnState(state as typeof connState);
+      if (
+        (state === ConnectionState.Connected ||
+          state === ConnectionState.SignalReconnecting) &&
+        sessionStatus !== "ended"
+      ) {
+        // Reconnected (after ICE restart / full reconnect / signal resume):
+        // resume audio and log the recovery for production analysis — but only
+        // when a real drop preceded it (the initial join also fires Connected).
+        resumeAudio();
+        if (hadDisconnectRef.current) {
+          hadDisconnectRef.current = false;
+          logEvent("host_reconnected", { from_state: String(state) });
+        }
+      }
+    };
+    room.on(RoomEvent.ConnectionStateChanged, handler);
+    return () => {
+      room.off(RoomEvent.ConnectionStateChanged, handler);
+    };
+  }, [room, sessionStatus, resumeAudio, logEvent]);
+
+  // Disconnect handling with the real DisconnectReason. Branching by reason is
+  // what keeps auto-rejoin safe: intentional leaves, duplicate identities, and
+  // deleted rooms must NOT trigger the rejoin loop.
+  useEffect(() => {
+    if (!room) return;
+    const onDisconnected = (reason?: DisconnectReason) => {
+      if (sessionStatus === "ended" || navigatingRef.current) return;
+
+      // Intentional leave (Leave/End button, room.disconnect()) — no telemetry
+      // noise, no auto-rejoin.
+      if (reason === DisconnectReason.CLIENT_INITIATED) return;
+
+      hadDisconnectRef.current = true;
+      logDisconnect(reason);
+
+      // Another tab/device took over this identity (or the stale-participant
+      // cleanup kicked this tab out). Auto-rejoining would kick the other side
+      // back — an endless ping-pong — so block and let the user decide.
+      if (
+        reason === DisconnectReason.DUPLICATE_IDENTITY ||
+        reason === DisconnectReason.PARTICIPANT_REMOVED
+      ) {
+        setBlockedRejoinReason(
+          "This session was joined from another tab or device.",
+        );
+        return;
+      }
+
+      // Room deleted server-side (mentor ended the session, or the webhook
+      // auto-ended an orphaned one) — terminal state, no rejoin.
+      if (reason === DisconnectReason.ROOM_DELETED) {
+        setSessionStatus("ended");
+        navigatingRef.current = true;
+        endPollTimerRef.current = setTimeout(() => {
+          navigate("/", { replace: true });
+        }, 3000);
+        return;
+      }
+
+      // Network drop / server restart / unknown — the SDK already exhausted
+      // its retry budget, so begin app-level auto-rejoin with backoff.
+      scheduleRejoin();
+    };
+    room.on(RoomEvent.Disconnected, onDisconnected);
+    return () => {
+      room.off(RoomEvent.Disconnected, onDisconnected);
+    };
+  }, [room, sessionStatus, logDisconnect, scheduleRejoin, navigate]);
+
+  // Remove the hidden <audio> elements we appended for tracks that have since
+  // unsubscribed (participant left after an interruption re-attach). React-
+  // managed RoomAudioRenderer elements are only detached, never removed here.
+  useEffect(() => {
+    if (!room) return;
+    const onTrackUnsubscribed = (track: any) => {
+      if (!track || track.kind !== "audio") return;
+      const ours = new Set(reattachedElsRef.current);
+      track.detach().forEach((el: HTMLMediaElement) => {
+        if (ours.has(el)) el.remove();
+      });
+      reattachedElsRef.current = reattachedElsRef.current.filter(
+        (el) => el.isConnected,
+      );
+    };
+    room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+    return () => {
+      room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+    };
+  }, [room]);
+
+  // A dropped host lingers as a room participant until the server's
+  // departure_timeout removes them — during that window their camera track
+  // still "exists" but renders a frozen/black frame, and an identity-presence
+  // check alone would keep showing it. The host's connection quality flips to
+  // Lost within seconds of a drop, so drive the "Host Reconnecting" fallback
+  // from that (much faster) signal instead.
+  useEffect(() => {
+    if (!room || !mentorId) return;
+    const onQualityChanged = (quality: ConnectionQuality, participant: any) => {
+      if (participant?.identity === mentorId) {
+        setMentorConnectionLost(quality === ConnectionQuality.Lost);
+      }
+    };
+    // Initial read — covers students joining while the host is already dropped.
+    const mentor = room.remoteParticipants.get(mentorId);
+    if (mentor) {
+      setMentorConnectionLost(
+        mentor.connectionQuality === ConnectionQuality.Lost,
+      );
+    }
+    room.on(RoomEvent.ConnectionQualityChanged, onQualityChanged);
+    return () => {
+      room.off(RoomEvent.ConnectionQualityChanged, onQualityChanged);
+    };
+  }, [room, mentorId]);
+
+  // Canonical LiveKit signal for "remote audio is/isn't playing". This fires for
+  // interruptions that neither background the page nor drop the WebRTC connection
+  // (notification banner, Siri peek, some alarm overlays) — exactly the cases
+  // where visibilitychange never fires and the host otherwise stays inaudible
+  // with zero recovery prompt.
+  useEffect(() => {
+    if (!room) return;
+    const onPlaybackChanged = (playing: boolean) => {
+      if (!playing && sessionStatus !== "ended") {
+        reattachRemoteAudio();
+        resumeAudio();
+      }
+    };
+    room.on(RoomEvent.AudioPlaybackStatusChanged, onPlaybackChanged);
+    return () => {
+      room.off(RoomEvent.AudioPlaybackStatusChanged, onPlaybackChanged);
+    };
+  }, [room, sessionStatus, resumeAudio, reattachRemoteAudio]);
+
+  // Network restored (e.g. after iOS drops WiFi/LTE during a phone call) — skip
+  // the remaining backoff wait and rejoin immediately if the room is fully down.
+  useEffect(() => {
+    if (!room) return;
+    const onOnline = () => {
+      if (sessionStatus === "ended" || navigatingRef.current) return;
+      if (room.state === ConnectionState.Disconnected) {
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        rejoinAttemptRef.current = 0;
+        setRejoinAttempt(0);
+        attemptRejoin();
+      } else {
+        resumeAudio();
+      }
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [room, sessionStatus, attemptRejoin, resumeAudio]);
+
+  // iOS/Safari audio interruption recovery: a phone call, alarm, Siri, or Control
+  // Center can suspend the AudioContext and pause remote playback even though the
+  // WebRTC connection stays up. Resume audio when the app becomes visible again,
+  // when the OS ends the interruption, or when a bfcache restore unfreezes us.
+  useEffect(() => {
+    if (!room) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || sessionStatus === "ended") {
+        return;
+      }
+      resumeAudio();
+      // iOS may have suspended ICE while hidden — if the SDK already gave up,
+      // kick off the app-level rejoin immediately instead of waiting.
+      if (room.state === ConnectionState.Disconnected) {
+        scheduleRejoin();
+      }
+    };
+    const onAudioInterruption = (e: Event) => {
+      // webkitendinterruption (Safari) / audiointerruptionend
+      if (
+        (e.type === "webkitendinterruption" ||
+          e.type === "audiointerruptionend") &&
+        sessionStatus !== "ended"
+      ) {
+        resumeAudio();
+      }
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      // bfcache restore (iOS app-switch / back-forward) — timers and sockets may
+      // have been frozen; resume audio and rejoin if the room dropped.
+      if (e.persisted && sessionStatus !== "ended") {
+        resumeAudio();
+        if (room.state === ConnectionState.Disconnected) {
+          scheduleRejoin();
+        }
+      }
+    };
+    const onFocus = () => {
+      if (sessionStatus !== "ended") {
+        resumeAudio();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("webkitendinterruption", onAudioInterruption);
+    document.addEventListener("audiointerruptionend", onAudioInterruption);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("webkitendinterruption", onAudioInterruption);
+      document.removeEventListener("audiointerruptionend", onAudioInterruption);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [room, sessionStatus, resumeAudio, scheduleRejoin]);
 
   // Robust chat send with fallback
   const sendChat = async (text: string) => {
@@ -294,6 +889,11 @@ function MyVideoConference({
 
   const allParticipants = useParticipants();
 
+  const mentorPresent = useMemo(() => {
+    if (!allParticipants?.length || !mentorId) return true;
+    return allParticipants.some((p) => p.identity === mentorId);
+  }, [allParticipants, mentorId]);
+
   // Poll for session-end signal via mentor metadata (backup for data channel)
   // Runs on a timer instead of every state change to avoid 200+ JSON.parse per tick
   //TODO: change this into event driven instead of polling
@@ -304,11 +904,15 @@ function MyVideoConference({
     if (!localParticipant) return;
 
     const interval = setInterval(() => {
-      if (sessionStatus === "ended") return;
+      if (sessionStatus === "ended" || navigatingRef.current) return;
       const allP = [localParticipant, ...allParticipantsRef.current];
       const mentor = allP.find((p) => {
         try {
           const meta = JSON.parse(p.metadata || "{}");
+          // Match the mentor, but NEVER the local participant's own metadata —
+          // a stale isSessionEnded on the mentor's own identity must not
+          // self-disconnect them (e.g. leftover from a previous End Session).
+          if (p.identity === localParticipant.identity) return false;
           return meta.role === "mentor" || p.identity === mentorId;
         } catch {
           return false;
@@ -320,7 +924,8 @@ function MyVideoConference({
           if (mentorMeta.isSessionEnded) {
             devLog("Session end signal received from mentor metadata");
             setSessionStatus("ended");
-            setTimeout(() => {
+            navigatingRef.current = true;
+            endPollTimerRef.current = setTimeout(() => {
               room.disconnect();
               navigate("/", { replace: true });
             }, 3000);
@@ -331,8 +936,30 @@ function MyVideoConference({
       }
     }, 3000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (endPollTimerRef.current) clearTimeout(endPollTimerRef.current);
+    };
   }, [localParticipant, mentorId, sessionStatus, room, navigate]);
+
+  // Clear any stale isSessionEnded flag on the local participant when (re)joining.
+  // LiveKit persists participant metadata by identity, so a flag left over from a
+  // previous End Session (or a reused session/identity) would otherwise linger and
+  // could re-trigger an end/disconnect on the next join.
+  useEffect(() => {
+    if (!localParticipant || sessionStatus === "ended") return;
+    (async () => {
+      try {
+        const meta = JSON.parse(localParticipant.metadata || "{}");
+        if (meta.isSessionEnded) {
+          const cleared = { ...meta, isSessionEnded: false };
+          await localParticipant.setMetadata(JSON.stringify(cleared));
+        }
+      } catch {
+        /* metadata not yet available — ignore */
+      }
+    })();
+  }, [localParticipant, sessionStatus]);
 
   const toggleHand = async () => {
     if (!localParticipant) return;
@@ -619,6 +1246,130 @@ function MyVideoConference({
             )}
           </div> */}
 
+          {/* Reconnection banner — non-intrusive, matching Zoom/Meet/Teams pattern */}
+          {connState === "reconnecting" && !showReconnectOverlay && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-500/90 backdrop-blur-md text-black px-4 py-2 rounded-full flex items-center gap-2 shadow-lg animate-in slide-in-from-top-2 duration-300">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm font-medium">Reconnecting...</span>
+            </div>
+          )}
+
+          {/* Audio resume affordance — browsers require a user gesture to start
+              audio playback. After an iOS interruption / auto-rejoin where no
+              gesture occurred, startAudio() rejects, so we ask the user to tap. */}
+          {audioResumeNeeded && connState !== "reconnecting" && sessionStatus !== "ended" && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 backdrop-blur-md text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg animate-in slide-in-from-top-2 duration-300">
+              <WifiOff className="w-4 h-4 text-amber-400" />
+              <span className="text-sm font-medium">Audio paused</span>
+              <button
+                onClick={tapToResumeAudio}
+                className="ml-1 px-3 py-1 rounded-full bg-primary text-black text-xs font-bold hover:opacity-90 active:scale-95 transition"
+              >
+                Tap to resume
+              </button>
+            </div>
+          )}
+
+          {/* Reconnection overlay — full takeover after 15s of banner */}
+          {connState === "reconnecting" && showReconnectOverlay && (
+            <div className="absolute inset-0 bg-black/70 z-50 flex flex-col items-center justify-center backdrop-blur-sm animate-in fade-in duration-500">
+              <OrbitalLoader variant="inline" />
+              <p className="mt-6 text-white/80 text-lg font-medium">
+                Still reconnecting...
+              </p>
+              <p className="mt-2 text-white/50 text-sm">
+                Your connection was interrupted. Please wait.
+              </p>
+            </div>
+          )}
+
+          {/* Connection lost — SDK gave up after ~48s. Auto-rejoin with backoff
+              (host should not have to manually click). Manual fallback only if
+              auto-rejoin is exhausted or blocked by a duplicate identity. */}
+          {connState === "disconnected" && sessionStatus !== "ended" && (
+            <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center animate-in fade-in duration-500">
+              <WifiOff className="w-16 h-16 text-amber-400 mb-6" />
+              <h2 className="text-white text-xl font-semibold mb-2">
+                Connection Lost
+              </h2>
+              {blockedRejoinReason ? (
+                <>
+                  <p className="text-white/60 mb-8 text-center max-w-md">
+                    {blockedRejoinReason}
+                  </p>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => {
+                        setBlockedRejoinReason(null);
+                        setAutoRejoinFailed(false);
+                        rejoinAttemptRef.current = 0;
+                        setRejoinAttempt(0);
+                        attemptRejoin();
+                      }}
+                      className="btn-primary px-6 py-3"
+                    >
+                      Rejoin Here Instead
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigatingRef.current = true;
+                        navigate("/", { replace: true });
+                      }}
+                      className="btn-secondary px-6 py-3"
+                    >
+                      Return to Dashboard
+                    </button>
+                  </div>
+                </>
+              ) : autoRejoinFailed ? (
+                <>
+                  <p className="text-white/60 mb-8 text-center max-w-md">
+                    We couldn't reconnect automatically. Rejoin the session to
+                    continue.
+                  </p>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => {
+                        setAutoRejoinFailed(false);
+                        rejoinAttemptRef.current = 0;
+                        setRejoinAttempt(0);
+                        attemptRejoin();
+                      }}
+                      className="btn-primary px-6 py-3"
+                    >
+                      Rejoin Session
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigatingRef.current = true;
+                        navigate("/", { replace: true });
+                      }}
+                      className="btn-secondary px-6 py-3"
+                    >
+                      Return to Dashboard
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-white/60 mb-8 text-center max-w-md">
+                    Reconnecting automatically
+                    {rejoinAttempt > 0 ? ` (attempt ${rejoinAttempt})` : ""}…
+                  </p>
+                  <button
+                    onClick={() => {
+                      navigatingRef.current = true;
+                      navigate("/", { replace: true });
+                    }}
+                    className="btn-secondary px-6 py-3"
+                  >
+                    Return to Dashboard
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex-1 overflow-hidden p-2 md:p-6 mb-24 md:mb-28">
             {/* Empty room — nobody here yet */}
             {tracks.length === 0 && allParticipants.length <= 1 ? (
@@ -673,6 +1424,28 @@ function MyVideoConference({
                 <div className="absolute inset-0">
                   {mainTrack && <CustomParticipantTile trackRef={mainTrack} />}
                 </div>
+                {/* Host Reconnecting fallback — matches Zoom/Meet frozen-tile
+                    pattern. Covers both windows: host fully removed from the
+                    room (no track, identity gone) AND host dropped but still
+                    lingering (frozen track) via the faster Lost-quality signal.
+                    Rendered after the video layer so it overlays the dead frame. */}
+                {((!mainTrack && !mentorPresent) || mentorConnectionLost) &&
+                  !isMentor &&
+                  sessionStatus !== "ended" && (
+                    <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A14] to-[#12121F] flex flex-col items-center justify-center">
+                      <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-primary/10">
+                        <Wifi className="w-8 h-8 text-primary/50" />
+                      </div>
+                      <h3 className="text-white/80 text-lg font-medium mb-1">
+                        Host Reconnecting
+                      </h3>
+                      <p className="text-white/40 text-sm text-center max-w-sm">
+                        The host's connection was interrupted. The session will
+                        resume automatically.
+                      </p>
+                      <Loader2 className="w-4 h-4 animate-spin mt-6 text-white/30" />
+                    </div>
+                  )}
                 {activeSpeakers.length > 0 && (
                   <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 pt-16 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
                     <div
@@ -908,6 +1681,7 @@ function MyVideoConference({
 
               <button
                 onClick={async () => {
+                  navigatingRef.current = true;
                   if (isMentor) {
                     try {
                       const { data: authData } =
@@ -931,6 +1705,7 @@ function MyVideoConference({
                     }
                   }
                   room.disconnect();
+                  navigate("/", { replace: true });
                 }}
                 className="w-12 h-12 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-all"
               >
@@ -1114,6 +1889,7 @@ function MyVideoConference({
 
                   <button
                     onClick={async () => {
+                      navigatingRef.current = true;
                       if (isMentor) {
                         try {
                           // 1. Broadcast SESSION_ENDED via data channel for instant notification

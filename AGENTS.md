@@ -61,7 +61,11 @@ See @brief.md for the full design brief (visual identity, composition lanes, voi
 - Password reset: Admins can reset student/mentor passwords via `UserManagement` (calls `admin-reset-password` edge function using service role). Users can change their own password via `/profile` settings page.
 - Roles: `student` (default), `mentor`, `admin` — enforced via RLS policies
 - User approval: New registrations require admin approval. `user_approval_requests` table tracks approval workflow. RLS policies block unapproved users from accessing protected resources.
-- Conferencing: LiveKit rooms with waiting room pattern (`session_participants` table)
+- Conferencing: LiveKit rooms with waiting room pattern (`session_participants` table). All reconnection/audio-resilience logic lives in `components/conferencing/MeetingView.tsx` (not in feature hooks).
+- Conferencing resilience: Room options `disconnectOnPageLeave: false`, `stopLocalTrackOnUnpublish: false`, `stopMicTrackOnMute: false`, custom `reconnectPolicy` (~80s SDK retry budget before app-level rejoin). Disconnect handling branches on the real `DisconnectReason` from `RoomEvent.Disconnected`: `CLIENT_INITIATED` → no log/no rejoin; `DUPLICATE_IDENTITY`/`PARTICIPANT_REMOVED` → rejoin blocked with "joined from another tab/device" UX (prevents multi-tab kick-ping-pong); `ROOM_DELETED` → terminal "session ended" UX; network drops → host auto-rejoins with a fresh token (bounded backoff 2s→32s, 5 attempts, then manual fallback), refreshing expired Supabase auth mid-rejoin. `livekit-get-token` removes stale participants before minting tokens (prevents DUPLICATE_IDENTITY join failures) and returns proper 403 JSON for not-live sessions. `livekit-webhook` logs host drops (`host_left_room`) and auto-ends orphaned sessions (`session_auto_ended_host_gone`).
+- Host-drop student UX: "Host Reconnecting" tile is driven by the host's `ConnectionQuality.Lost` signal (fires within seconds of a drop) in addition to identity/track presence — covers the departure_timeout window where the host's frozen camera track still lingers in the room, so students never see a black/frozen screen.
+- Mobile audio interruption recovery: `RoomEvent.AudioPlaybackStatusChanged` (canonical signal) + `visibilitychange`/`pageshow`(bfcache)/`focus`/`online` handlers → `resumeAudio()` (`room.startAudio()` + mic/camera re-assert) with "Tap to resume" gesture fallback; `reattachRemoteAudio()` re-creates remote `<audio>` elements if iOS destroyed them (only when a subscribed track has zero attached elements — never touches `RoomAudioRenderer` elements; cleaned up on track unsubscribe/unmount).
+- Reconnection telemetry: `meeting_logs` events via `livekit-manage-session` actions `log_disconnect` (real `DisconnectReason` names) / `log_event` (`host_rejoin_attempt`, `host_rejoined`, `host_reconnected` — latter only after a real drop, `stale_participant_cleaned`). Monitor these post-deploy to verify resilience fixes.
 - Video library: HLS playback via Video.js with quality selector
 - Scheduler: Recurring weekly availability slots (`mentor_availability` table)
 
@@ -76,10 +80,10 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Mentor Scheduler | Built | Recurring weekly availability slots |
 | Booking System | Built | 1-on-1 appointments between students and mentors |
 | Video Library | Built | HLS playback via Video.js with quality selector |
-| Conferencing | Built | LiveKit rooms with waiting room pattern |
+| Conferencing | Built | LiveKit rooms with waiting room pattern, host auto-rejoin, mobile audio interruption recovery, Lost-quality host-reconnecting fallback, disconnect-reason-based recovery branching |
 | Admin Dashboard | In Progress | Stats, logs, infrastructure health, user approval management |
 | Session Chat | Built | Persisted chat history via `session_chats` |
-| Meeting Logs | Built | Event tracking (joins, leaves, errors) via `meeting_logs` |
+| Meeting Logs | Built | Event tracking (joins, leaves, errors, reconnection telemetry) via `meeting_logs` |
 | Session Recording | Built | LiveKit Egress with FilesysUpload, mentor+admin access, `session_recordings` table |
 | Password Reset (Admin) | Built | Admin resets student/mentor passwords via `admin-reset-password` edge function |
 | Password Change (Self) | Built | Users change own password via `/profile` settings page |

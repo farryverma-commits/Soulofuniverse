@@ -1,5 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js";
-import { WebhookReceiver } from "npm:livekit-server-sdk@2.1.2";
+import {
+  WebhookReceiver,
+  RoomServiceClient,
+} from "npm:livekit-server-sdk@2.1.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +51,7 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get("LIVEKIT_API_KEY");
     const apiSecret = Deno.env.get("LIVEKIT_API_SECRET");
+    const livekitUrl = Deno.env.get("LIVEKIT_URL") ?? "";
 
     if (!apiKey || !apiSecret) {
       throw new Error("LiveKit configuration missing");
@@ -165,6 +169,79 @@ Deno.serve(async (req: Request) => {
           .from("group_sessions")
           .update({ status: "completed" })
           .eq("id", sessionId);
+      }
+
+      // Detect when the session host leaves a live session unexpectedly.
+      // Catches drops even when the client-side log can't fire (browser crash,
+      // tab close, device sleep). Only triggers for live sessions — intentional
+      // session-end already sets status to "completed" before the host leaves.
+      if (event.event === "participant_left") {
+        const leftIdentity = event.participant?.identity;
+        if (leftIdentity) {
+          const { data: session } = await supabaseClient
+            .from("group_sessions")
+            .select("mentor_id, status")
+            .eq("id", sessionId)
+            .single();
+
+          if (
+            session?.mentor_id === leftIdentity &&
+            session?.status === "live"
+          ) {
+            const leaveReason = (event.participant as any)?.reason || "unknown";
+            const remaining = event.room?.numParticipants || 0;
+            console.warn(
+              `[webhook] HOST left live session ${sessionId}: ` +
+              `reason=${leaveReason}, remaining=${remaining}`,
+            );
+
+            await supabaseClient.from("meeting_logs").insert({
+              session_id: sessionId,
+              event_type: "host_left_room",
+              payload: {
+                user_id: leftIdentity,
+                reason: leaveReason,
+                remaining_participants: remaining,
+                detected_by: "webhook",
+              },
+            });
+
+            // Clean up orphaned sessions. If the host was the last participant
+            // (room now empty), end the session so it doesn't stay live forever
+            // after a crash. If participants remain, do NOT end — the host's
+            // client auto-reconnect brings them back and participants keep
+            // seeing the "Host Reconnecting" tile. numParticipants at
+            // participant_left time may still count the leaver, so treat <=1
+            // as effectively empty.
+            if (remaining <= 1 && livekitUrl) {
+              try {
+                const roomService = new RoomServiceClient(
+                  livekitUrl,
+                  apiKey,
+                  apiSecret,
+                );
+                await roomService.deleteRoom(`session_${sessionId}`);
+              } catch (delErr) {
+                console.error("Failed to delete orphaned room:", delErr);
+              }
+              await supabaseClient
+                .from("group_sessions")
+                .update({ status: "completed" })
+                .eq("id", sessionId)
+                .eq("status", "live");
+              await supabaseClient
+                .from("session_participants")
+                .update({ status: "rejected" })
+                .eq("session_id", sessionId)
+                .eq("status", "pending");
+              await supabaseClient.from("meeting_logs").insert({
+                session_id: sessionId,
+                event_type: "session_auto_ended_host_gone",
+                payload: { user_id: leftIdentity, detected_by: "webhook" },
+              });
+            }
+          }
+        }
       }
     }
 

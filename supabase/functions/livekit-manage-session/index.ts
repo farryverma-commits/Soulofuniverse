@@ -19,29 +19,24 @@ Deno.serve(async (req: Request) => {
   }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-  const SUPABASE_PUBLISHABLE_KEYS = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
   const SUPABASE_SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
 
   if (!SUPABASE_URL) {
     return new Response("Missing SUPABASE_URL", { status: 500 });
   }
-  if (!SUPABASE_PUBLISHABLE_KEYS || !SUPABASE_SECRET_KEYS) {
+  if (!SUPABASE_SECRET_KEYS) {
     return new Response(
-      "Missing SUPABASE_PUBLISHABLE_KEYS or SUPABASE_SECRET_KEYS",
+      "Missing SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
 
-  // The platform provides JSON maps keyed by your configured key names.
-  const publishableKeys = JSON.parse(SUPABASE_PUBLISHABLE_KEYS);
   const secretKeys = JSON.parse(SUPABASE_SECRET_KEYS);
-
-  const publishableKey = publishableKeys?.default;
   const secretKey = secretKeys?.default;
 
-  if (!publishableKey || !secretKey) {
+  if (!secretKey) {
     return new Response(
-      "Key name 'default' not found in SUPABASE_PUBLISHABLE_KEYS / SUPABASE_SECRET_KEYS",
+      "Key name 'default' not found in SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
@@ -60,9 +55,8 @@ Deno.serve(async (req: Request) => {
 
     const token = authHeader.replace(/^Bearer\s+/i, "");
 
-    const supabaseClient = createClient(SUPABASE_URL, publishableKey);
     const supabaseAdmin = createClient(SUPABASE_URL, secretKey);
-    const { data: { user }, error: authError } = await supabaseClient.auth
+    const { data: { user }, error: authError } = await supabaseAdmin.auth
       .getUser(token);
 
     if (authError || !user) {
@@ -72,9 +66,58 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { session_id, action, egress_id } = await req.json();
+    const { session_id, action, egress_id, payload } = await req.json();
     if (!session_id || !action) {
       throw new Error("Session ID and action are required");
+    }
+
+    // log_disconnect: any authenticated participant can log their own disconnect.
+    // Handled before session ownership checks so all participants can report drops.
+    if (action === "log_disconnect") {
+      const { user_id, is_host, reason, connection_type, user_agent, disconnected_at } =
+        payload || {};
+
+      await supabaseAdmin.from("meeting_logs").insert({
+        session_id,
+        event_type: is_host ? "host_disconnected_unexpectedly" : "participant_disconnected_unexpectedly",
+        payload: { user_id, reason, connection_type, user_agent, disconnected_at },
+      });
+
+      if (is_host) {
+        console.warn(
+          `[meeting] HOST dropped: session=${session_id}, reason=${reason}, conn=${connection_type}`
+        );
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // log_event: any authenticated participant can log a critical lifecycle event
+    // (rejoin attempts, reconnected, etc.) for production post-mortem analysis.
+    // Handled before session ownership checks so all participants can report.
+    if (action === "log_event") {
+      // user_id/is_host must be destructured here from THIS action's payload —
+      // previously they were referenced from the log_disconnect block scope,
+      // which threw a ReferenceError and silently dropped all rejoin telemetry.
+      const { event_type, user_id, is_host, ...extra } = payload || {};
+
+      await supabaseAdmin.from("meeting_logs").insert({
+        session_id,
+        event_type: event_type || "generic_event",
+        payload: { user_id, is_host, ...extra },
+      });
+
+      if (is_host) {
+        console.warn(
+          `[meeting] HOST event: session=${session_id}, event=${event_type}`
+        );
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const { data: session, error: fetchError } = await supabaseAdmin
@@ -166,7 +209,7 @@ Deno.serve(async (req: Request) => {
             livekitApiKey,
             livekitApiSecret,
           );
-          await roomService.deleteRoom(session_id);
+          await roomService.deleteRoom(`session_${session_id}`);
           console.log(`Deleted LiveKit room for session ${session_id}`);
         } catch (err) {
           console.error(`Failed to delete LiveKit room ${session_id}:`, err);
@@ -247,7 +290,7 @@ Deno.serve(async (req: Request) => {
         );
 
         const result = await egressClient.startRoomCompositeEgress(
-          session_id,
+          `session_${session_id}`,
           new EncodedFileOutput({
             fileType: EncodedFileType.MP4,
             filepath: filePath,

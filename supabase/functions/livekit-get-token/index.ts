@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js";
-import { AccessToken } from "npm:livekit-server-sdk@2.1.2";
+import { AccessToken, RoomServiceClient } from "npm:livekit-server-sdk@2.1.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,29 +15,24 @@ Deno.serve(async (req: Request) => {
   console.log("livekit-get-token request received");
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-  const SUPABASE_PUBLISHABLE_KEYS = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
   const SUPABASE_SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
 
   if (!SUPABASE_URL) {
     return new Response("Missing SUPABASE_URL", { status: 500 });
   }
-  if (!SUPABASE_PUBLISHABLE_KEYS || !SUPABASE_SECRET_KEYS) {
+  if (!SUPABASE_SECRET_KEYS) {
     return new Response(
-      "Missing SUPABASE_PUBLISHABLE_KEYS or SUPABASE_SECRET_KEYS",
+      "Missing SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
 
-  // The platform provides JSON maps keyed by your configured key names.
-  const publishableKeys = JSON.parse(SUPABASE_PUBLISHABLE_KEYS);
   const secretKeys = JSON.parse(SUPABASE_SECRET_KEYS);
-
-  const publishableKey = publishableKeys?.default;
   const secretKey = secretKeys?.default;
 
-  if (!publishableKey || !secretKey) {
+  if (!secretKey) {
     return new Response(
-      "Key name 'default' not found in SUPABASE_PUBLISHABLE_KEYS / SUPABASE_SECRET_KEYS",
+      "Key name 'default' not found in SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
@@ -56,9 +51,8 @@ Deno.serve(async (req: Request) => {
 
     const token = authHeader.replace(/^Bearer\s+/i, "");
 
-    const supabaseClient = createClient(SUPABASE_URL, publishableKey);
     const supabaseAdmin = createClient(SUPABASE_URL, secretKey);
-    const { data: { user }, error: authError } = await supabaseClient.auth
+    const { data: { user }, error: authError } = await supabaseAdmin.auth
       .getUser(token);
 
     if (authError || !user) {
@@ -80,10 +74,17 @@ Deno.serve(async (req: Request) => {
 
     if (sessionError || !session) throw new Error("Session not found");
     if (session.status !== "live") {
-      throw new Response(JSON.stringify({ error: "Meeting is not live yet" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // Return (not throw) so the client receives the real JSON body + 403 —
+      // throwing a Response object landed in the catch below as
+      // {"error":"[object Response]"}, which broke the client's
+      // "session ended while dropped" detection and caused infinite rejoin loops.
+      return new Response(
+        JSON.stringify({ error: "Meeting is not live yet" }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     // 2. Fetch user role for admin bypass
@@ -113,7 +114,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4. Generate LiveKit token
+    // 4. Remove stale participant from LiveKit room if reconnecting
+    // Prevents "could not restart participant" error (LiveKit Issues #3456/#3475).
+    // When a participant disconnects abruptly, the LiveKit server retains a stale
+    // participant state for the departure_timeout period. Reconnection attempts
+    // with the same identity during this window are rejected.
+    //
+    // Safety: checkSessionAndJoin() only runs on initial page load or Supabase
+    // realtime events — the participant's previous WebSocket is already dead.
     const apiKey = Deno.env.get("LIVEKIT_API_KEY");
     const apiSecret = Deno.env.get("LIVEKIT_API_SECRET");
     const livekitUrl = Deno.env.get("LIVEKIT_URL");
@@ -122,9 +130,48 @@ Deno.serve(async (req: Request) => {
       throw new Error("LiveKit configuration missing");
     }
 
+    try {
+      const roomService = new RoomServiceClient(
+        livekitUrl,
+        apiKey,
+        apiSecret,
+      );
+      const roomName = `session_${session_id}`;
+      const participants = await roomService.listParticipants(roomName);
+      const existing = participants.find((p) => p.identity === user.id);
+
+      if (existing) {
+        console.log(
+          `[livekit-get-token] Removing stale participant: ` +
+          `identity=${user.id}, sid=${existing.sid}, room=${roomName}`
+        );
+        await roomService.removeParticipant(roomName, user.id);
+
+        await supabaseAdmin.from("meeting_logs").insert({
+          session_id,
+          event_type: "stale_participant_cleaned",
+          payload: {
+            user_id: user.id,
+            participant_sid: existing.sid,
+            state: existing.state,
+            full_name: profile?.full_name,
+          },
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("not found") && !msg.includes("does not exist")) {
+        console.warn(`[livekit-get-token] Stale check (non-fatal): ${msg}`);
+      }
+    }
+
+    // 5. Generate LiveKit token
+    // ttl: generous so long sessions don't drop on silent server-default token
+    // expiry (there is no in-app token refresh path). 6h covers any single session.
     const at = new AccessToken(apiKey, apiSecret, {
       identity: user.id,
       name: profile.full_name ?? user.email,
+      ttl: "6h",
     });
 
     at.addGrant({
@@ -164,7 +211,7 @@ Deno.serve(async (req: Request) => {
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: error instanceof Response ? error.status : 400,
+        status: 400,
       },
     );
   }

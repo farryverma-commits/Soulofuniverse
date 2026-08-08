@@ -21,7 +21,28 @@ export const MeetingPage: React.FC = () => {
   useEffect(() => {
     if (!sessionId) return;
 
-    const checkSessionAndJoin = async () => {
+    // Guard against concurrent checkSessionAndJoin calls (mount + realtime
+    // re-fires + rapid rejoin) that would each mint a token for the same identity
+    // and collide as DUPLICATE_IDENTITY on LiveKit.
+    const joiningRef = { current: false };
+    let abortController: AbortController | null = null;
+    let realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
+
+    // Track subscriptions so we can tear them down once the user has joined.
+    // Declared before checkSessionAndJoin so the closure can reference them.
+    let participantSub: ReturnType<typeof supabase.channel> | null = null;
+    let sessionSub: ReturnType<typeof supabase.channel> | null = null;
+
+    const cleanupRealtimeChannels = () => {
+      participantSub?.unsubscribe();
+      sessionSub?.unsubscribe();
+      participantSub = null;
+      sessionSub = null;
+    };
+
+    const checkSessionAndJoin = async (signal?: AbortSignal) => {
+      if (joiningRef.current) return;
+      joiningRef.current = true;
       try {
         const {
           data: { user },
@@ -62,11 +83,11 @@ export const MeetingPage: React.FC = () => {
           },
         );
 
+        if (signal?.aborted) return;
+
         const data = await response.json();
-        console.log("livekit-get-token status:", response.status);
 
         if (response.ok) {
-          //TODO issue in this
           await supabase.from("session_participants").upsert(
             {
               session_id: sessionId,
@@ -81,6 +102,9 @@ export const MeetingPage: React.FC = () => {
           setToken(data.participant_token);
           setServerUrl(data.server_url);
           setStatus("permissions");
+          // User has joined — waiting-room channels are no longer needed.
+          // Unsubscribe to release the DB replication slots.
+          cleanupRealtimeChannels();
         } else {
           if (data.error?.includes("Approval required")) {
             setStatus("waiting");
@@ -100,14 +124,29 @@ export const MeetingPage: React.FC = () => {
           }
         }
       } catch (err) {
-        setStatus("error");
-        setErrorMsg("An unexpected error occurred.");
+        if (!signal?.aborted) {
+          setStatus("error");
+          setErrorMsg("An unexpected error occurred.");
+        }
+      } finally {
+        // Only release the guard if this invocation wasn't superseded/aborted.
+        if (!signal?.aborted) joiningRef.current = false;
       }
+    };
+
+    // Realtime re-fires are debounced so an `approved` + `live` pair (or duplicate
+    // events) don't each trigger a separate token request.
+    const debouncedJoin = () => {
+      if (realtimeDebounce) clearTimeout(realtimeDebounce);
+      realtimeDebounce = setTimeout(() => {
+        abortController = new AbortController();
+        checkSessionAndJoin(abortController.signal);
+      }, 500);
     };
 
     checkSessionAndJoin();
 
-    const participantSubscription = supabase
+    participantSub = supabase
       .channel(`session_participants_${sessionId}`)
       .on(
         "postgres_changes",
@@ -118,7 +157,7 @@ export const MeetingPage: React.FC = () => {
           filter: `session_id=eq.${sessionId}`,
         },
         (payload) => {
-          if (payload.new.status === "approved") checkSessionAndJoin();
+          if (payload.new.status === "approved") debouncedJoin();
           if (payload.new.status === "rejected") {
             setStatus("error");
             setErrorMsg("Your request to join was declined by the host.");
@@ -127,7 +166,7 @@ export const MeetingPage: React.FC = () => {
       )
       .subscribe();
 
-    const sessionSubscription = supabase
+    sessionSub = supabase
       .channel(`group_session_${sessionId}`)
       .on(
         "postgres_changes",
@@ -138,14 +177,24 @@ export const MeetingPage: React.FC = () => {
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          if (payload.new.status === "live") checkSessionAndJoin();
+          // Only re-run join when we're not already connected/joining (the `live`
+          // event is only needed before the initial join, not on every update).
+          if (
+            payload.new.status === "live" &&
+            !token &&
+            !joiningRef.current
+          ) {
+            debouncedJoin();
+          }
         },
       )
       .subscribe();
 
     return () => {
-      participantSubscription.unsubscribe();
-      sessionSubscription.unsubscribe();
+      if (realtimeDebounce) clearTimeout(realtimeDebounce);
+      if (abortController) abortController.abort();
+      joiningRef.current = false;
+      cleanupRealtimeChannels();
     };
   }, [sessionId, navigate]);
 
@@ -301,7 +350,11 @@ export const MeetingPage: React.FC = () => {
       sessionId={sessionId!}
       isMentor={isMentor}
       mentorId={mentorId!}
-      onDisconnected={() => navigate("/")}
+      onDisconnected={() => {
+        // All intentional leave/end paths now call navigate() explicitly.
+        // This callback only fires for truly unexpected drops (SDK exhaustion).
+        // The MeetingView handles the reconnection UX internally.
+      }}
     />
   );
 };

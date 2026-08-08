@@ -11,29 +11,24 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-  const SUPABASE_PUBLISHABLE_KEYS = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
   const SUPABASE_SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
 
   if (!SUPABASE_URL) {
     return new Response("Missing SUPABASE_URL", { status: 500 });
   }
-  if (!SUPABASE_PUBLISHABLE_KEYS || !SUPABASE_SECRET_KEYS) {
+  if (!SUPABASE_SECRET_KEYS) {
     return new Response(
-      "Missing SUPABASE_PUBLISHABLE_KEYS or SUPABASE_SECRET_KEYS",
+      "Missing SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
 
-  // The platform provides JSON maps keyed by your configured key names.
-  const publishableKeys = JSON.parse(SUPABASE_PUBLISHABLE_KEYS);
   const secretKeys = JSON.parse(SUPABASE_SECRET_KEYS);
-
-  const publishableKey = publishableKeys?.default;
   const secretKey = secretKeys?.default;
 
-  if (!publishableKey || !secretKey) {
+  if (!secretKey) {
     return new Response(
-      "Key name 'default' not found in SUPABASE_PUBLISHABLE_KEYS / SUPABASE_SECRET_KEYS",
+      "Key name 'default' not found in SUPABASE_SECRET_KEYS",
       { status: 500 },
     );
   }
@@ -52,9 +47,8 @@ Deno.serve(async (req: Request) => {
 
     const token = authHeader.replace(/^Bearer\s+/i, "");
 
-    const supabaseClient = createClient(SUPABASE_URL, publishableKey);
     const supabaseAdmin = createClient(SUPABASE_URL, secretKey);
-    const { data: { user }, error: authError } = await supabaseClient.auth
+    const { data: { user }, error: authError } = await supabaseAdmin.auth
       .getUser(token);
 
     if (authError || !user) {

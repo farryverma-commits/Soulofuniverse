@@ -1,5 +1,6 @@
 import os
 import time
+import signal
 import subprocess
 import logging
 import re
@@ -200,11 +201,24 @@ if __name__ == "__main__":
     observer.schedule(event_handler, WATCH_DIR, recursive=False)
     observer.start()
 
+    def graceful_shutdown(signum, frame):
+        logging.info("Shutting down engine...")
+        observer.stop()
+        executor.shutdown(wait=True, cancel_futures=True)
+        try:
+            # Close httpx transport used by the Supabase client to release connections
+            if hasattr(supabase, 'postgrest') and hasattr(supabase.postgrest, 'close'):
+                supabase.postgrest.close()
+            logging.info("Supabase client connections closed.")
+        except Exception as e:
+            logging.warning(f"Supabase client cleanup: {e}")
+
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+    signal.signal(signal.SIGINT, graceful_shutdown)
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logging.info("Shutting down engine...")
-        observer.stop()
-        executor.shutdown(wait=True)
+        graceful_shutdown(None, None)
     observer.join()
