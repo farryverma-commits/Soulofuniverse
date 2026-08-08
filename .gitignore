@@ -31,6 +31,8 @@ Desktop.ini
 # Dependencies
 # ========================
 node_modules/
+.venv/
+__pycache__/
 
 # ========================
 # Build Outputs

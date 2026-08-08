@@ -210,19 +210,58 @@ Deno.serve(async (req: Request) => {
             // (room now empty), end the session so it doesn't stay live forever
             // after a crash. If participants remain, do NOT end — the host's
             // client auto-reconnect brings them back and participants keep
-            // seeing the "Host Reconnecting" tile. numParticipants at
-            // participant_left time may still count the leaver, so treat <=1
-            // as effectively empty.
-            if (remaining <= 1 && livekitUrl) {
+            // seeing the "Host Reconnecting" tile.
+            //
+            // The webhook's room.numParticipants is a cached snapshot (the room
+            // proto proxy refreshes every ~5s and normal leaves mark it
+            // non-immediate), so it may still count the leaving host — treating
+            // <=1 as "empty" can falsely end a session where a student is still
+            // connected. List participants live instead and only auto-end when
+            // no participant other than the host remains.
+            let remainingOthers = 0;
+            let roomService: RoomServiceClient | null = null;
+            if (livekitUrl) {
               try {
-                const roomService = new RoomServiceClient(
+                roomService = new RoomServiceClient(
                   livekitUrl,
                   apiKey,
                   apiSecret,
                 );
-                await roomService.deleteRoom(`session_${sessionId}`);
-              } catch (delErr) {
-                console.error("Failed to delete orphaned room:", delErr);
+                const participants =
+                  await roomService.listParticipants(`session_${sessionId}`);
+                remainingOthers = participants.filter(
+                  (p) => p.identity !== leftIdentity,
+                ).length;
+              } catch (listErr) {
+                // Room may already be gone (listParticipants 404s) — treat as
+                // empty so the orphaned-session cleanup still runs.
+                console.warn(
+                  `[webhook] listParticipants failed for ${sessionId}:`,
+                  listErr,
+                );
+                remainingOthers = 0;
+              }
+            } else {
+              console.warn(
+                "LIVEKIT_URL missing; cannot verify remaining participants",
+              );
+            }
+
+            if (remainingOthers === 0) {
+              // Only the room deletion needs the LiveKit API — the database
+              // cleanup (session status, pending rejections, audit log) must
+              // always run so an orphaned session can't stay live forever
+              // just because LIVEKIT_URL is unset.
+              if (roomService) {
+                try {
+                  await roomService.deleteRoom(`session_${sessionId}`);
+                } catch (delErr) {
+                  console.error("Failed to delete orphaned room:", delErr);
+                }
+              } else {
+                console.warn(
+                  "LIVEKIT_URL missing; skipping orphaned room deletion",
+                );
               }
               await supabaseClient
                 .from("group_sessions")

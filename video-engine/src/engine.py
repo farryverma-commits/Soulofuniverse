@@ -5,6 +5,8 @@ import subprocess
 import logging
 import re
 import uuid
+import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import TimedRotatingFileHandler
 from watchdog.observers import Observer
@@ -192,18 +194,19 @@ def scan_existing_files():
 
 if __name__ == "__main__":
     logging.info(f"🚀 Engine initialized. Watching: {WATCH_DIR}")
-    
-    # Run historical startup scan before listening live
-    scan_existing_files()
 
-    event_handler = VideoHandler()
-    observer = Observer()
-    observer.schedule(event_handler, WATCH_DIR, recursive=False)
-    observer.start()
+    # Set by the signal handlers; the main loop waits on it so a SIGTERM/SIGINT
+    # actually terminates the process after cleanup (a bare `while True: sleep`
+    # would keep the engine alive forever once the handler returns). Registered
+    # as early as possible so a signal during the startup scan is handled too.
+    shutdown_event = threading.Event()
+    observer: Observer | None = None
 
     def graceful_shutdown(signum, frame):
         logging.info("Shutting down engine...")
-        observer.stop()
+        shutdown_event.set()
+        if observer is not None:
+            observer.stop()
         executor.shutdown(wait=True, cancel_futures=True)
         try:
             # Close httpx transport used by the Supabase client to release connections
@@ -216,9 +219,19 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, graceful_shutdown)
     signal.signal(signal.SIGINT, graceful_shutdown)
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        graceful_shutdown(None, None)
-    observer.join()
+    # Run historical startup scan before listening live
+    scan_existing_files()
+
+    event_handler = VideoHandler()
+    observer = Observer()
+    observer.schedule(event_handler, WATCH_DIR, recursive=False)
+    observer.start()
+
+    # Wait for a shutdown signal instead of looping forever. The custom SIGINT
+    # handler suppresses KeyboardInterrupt, so the old `except KeyboardInterrupt`
+    # fallback could never fire. Exit explicitly rather than joining the
+    # observer thread: watchdog's fsevents observer can block forever in
+    # stop()/join() on some platforms, and the process must terminate after
+    # cleanup regardless (the OS reclaims lingering threads on exit).
+    shutdown_event.wait()
+    sys.exit(0)

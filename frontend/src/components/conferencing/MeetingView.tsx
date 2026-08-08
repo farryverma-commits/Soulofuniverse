@@ -157,6 +157,11 @@ function MyVideoConference({
   const { chatMessages, send: sendChatHook } = useChat();
   const room = useRoomContext();
 
+  // Kept in sync with the live participant so long-lived callbacks (attemptRejoin)
+  // never capture the first-render undefined localParticipant.
+  const localParticipantRef = useRef(localParticipant);
+  localParticipantRef.current = localParticipant;
+
   const [isSending, setIsSending] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<"active" | "ended">(
     "active",
@@ -193,6 +198,9 @@ function MyVideoConference({
   // after the user already left, and for clearing the pending end timeout.
   const navigatingRef = useRef(false);
   const endPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest scheduleRejoin, used by attemptRejoin to break the
+  // attemptRejoin ↔ scheduleRejoin dependency cycle.
+  const scheduleRejoinRef = useRef<() => void>(() => {});
   // Only log "host_reconnected" when a real drop preceded it — the initial
   // connect also fires ConnectionStateChanged(Connected).
   const hadDisconnectRef = useRef(false);
@@ -248,7 +256,7 @@ function MyVideoConference({
               session_id: sessionId,
               action: "log_disconnect",
               payload: {
-                user_id: localParticipant?.identity,
+                user_id: localParticipantRef.current?.identity,
                 is_host: isMentor,
                 reason: reasonName,
                 connection_type:
@@ -303,7 +311,7 @@ function MyVideoConference({
         /* fire-and-forget */
       }
     },
-    [sessionId, isMentor, localParticipant],
+    [sessionId, isMentor],
   );
 
   // Resume audio + re-assert mic/camera after an interruption/reconnect. On
@@ -312,9 +320,10 @@ function MyVideoConference({
   // startAudio() requires a user gesture; if it rejects we surface a tap affordance.
   const resumeAudio = useCallback(async () => {
     // Remember whether mic/camera were on so we can restore them after resume.
-    if (localParticipant) {
-      micWasEnabledRef.current = localParticipant.isMicrophoneEnabled;
-      cameraWasEnabledRef.current = localParticipant.isCameraEnabled;
+    const lp = localParticipantRef.current;
+    if (lp) {
+      micWasEnabledRef.current = lp.isMicrophoneEnabled;
+      cameraWasEnabledRef.current = lp.isCameraEnabled;
     }
     try {
       await room.startAudio();
@@ -328,21 +337,21 @@ function MyVideoConference({
     // resume (no gesture yet) must not leave the host's devices silently off.
     // Only re-enables devices that were on before (students never publish
     // camera, so this is a no-op for them).
-    if (micWasEnabledRef.current && localParticipant) {
+    if (micWasEnabledRef.current && lp) {
       try {
-        await localParticipant.setMicrophoneEnabled(true);
+        await lp.setMicrophoneEnabled(true);
       } catch {
         /* ignore */
       }
     }
-    if (cameraWasEnabledRef.current && localParticipant) {
+    if (cameraWasEnabledRef.current && lp) {
       try {
-        await localParticipant.setCameraEnabled(true);
+        await lp.setCameraEnabled(true);
       } catch {
         /* ignore — the OS may have taken the camera; the toggle still works */
       }
     }
-  }, [room, localParticipant]);
+  }, [room]);
 
   // Re-create remote <audio> elements if iOS tore them down instead of just
   // pausing them — startAudio() alone can't recover a destroyed element.
@@ -414,7 +423,7 @@ function MyVideoConference({
         // Still unauthenticated — keep the bounded backoff going so we either
         // recover or eventually surface the manual fallback, instead of
         // hanging forever on "Reconnecting automatically…".
-        scheduleRejoin();
+        scheduleRejoinRef.current();
         return;
       }
 
@@ -449,7 +458,7 @@ function MyVideoConference({
           }, 3000);
           return;
         }
-        scheduleRejoin();
+        scheduleRejoinRef.current();
         return;
       }
 
@@ -462,9 +471,9 @@ function MyVideoConference({
       logEvent("host_rejoined", { attempt: rejoinAttemptRef.current });
       resumeAudio();
     } catch {
-      scheduleRejoin();
+      scheduleRejoinRef.current();
     }
-  }, [room, sessionId, sessionStatus]);
+  }, [room, sessionId, sessionStatus, logEvent, resumeAudio, navigate]);
 
   const scheduleRejoin = useCallback(() => {
     if (rejoinAttemptRef.current >= MAX_REJOIN_ATTEMPTS) {
@@ -478,6 +487,9 @@ function MyVideoConference({
       attemptRejoin();
     }, delay);
   }, [attemptRejoin]);
+  // Keep the ref in sync so attemptRejoin (which only depends on stable
+  // logEvent/resumeAudio/navigate) always calls the latest scheduleRejoin.
+  scheduleRejoinRef.current = scheduleRejoin;
 
   // Reset rejoin counters once we're connected again.
   useEffect(() => {
@@ -492,9 +504,13 @@ function MyVideoConference({
 
   // Clean up the pending auto-rejoin timer on unmount so it can't fire
   // room.connect() on a disconnected/unmounted room after the user leaves.
+  // Also clears the pending end-of-session redirect timer — deliberately NOT in
+  // the polling effect's cleanup, which runs on every sessionStatus change and
+  // would cancel the redirect immediately after it is scheduled.
   useEffect(() => {
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (endPollTimerRef.current) clearTimeout(endPollTimerRef.current);
       reattachedElsRef.current.forEach((el) => el.remove());
       reattachedElsRef.current = [];
     };
@@ -506,7 +522,21 @@ function MyVideoConference({
   useEffect(() => {
     if (!room) return;
     const handler = (state: ConnectionState) => {
-      setConnState(state as typeof connState);
+      // Map the SDK's intermediate states onto our UI union. SignalReconnecting
+      // (signal-only reconnect, media still up) and Connecting must show the
+      // reconnecting banner/overlay too — a raw cast would store values the
+      // union excludes and render nothing while the SDK recovers.
+      if (state === ConnectionState.Reconnecting) {
+        setConnState("reconnecting");
+      } else if (state === ConnectionState.SignalReconnecting) {
+        setConnState("reconnecting");
+      } else if (state === ConnectionState.Connecting) {
+        setConnState("reconnecting");
+      } else if (state === ConnectionState.Disconnected) {
+        setConnState("disconnected");
+      } else if (state === ConnectionState.Connected) {
+        setConnState("connected");
+      }
       if (
         (state === ConnectionState.Connected ||
           state === ConnectionState.SignalReconnecting) &&
@@ -938,7 +968,6 @@ function MyVideoConference({
 
     return () => {
       clearInterval(interval);
-      if (endPollTimerRef.current) clearTimeout(endPollTimerRef.current);
     };
   }, [localParticipant, mentorId, sessionStatus, room, navigate]);
 
@@ -946,8 +975,18 @@ function MyVideoConference({
   // LiveKit persists participant metadata by identity, so a flag left over from a
   // previous End Session (or a reused session/identity) would otherwise linger and
   // could re-trigger an end/disconnect on the next join.
+  //
+  // Gated to the first mount only: after that, a useLocalParticipant re-render
+  // (any participant/media state change, including the metadata write itself)
+  // would re-run this effect while the mentor's End Session handler is still in
+  // flight — before setSessionStatus("ended") commits — and erase the very
+  // isSessionEnded: true signal it just wrote. That would silently break the
+  // metadata backup path for students who missed the data-channel broadcast.
+  const clearedStaleEndFlagRef = useRef(false);
   useEffect(() => {
     if (!localParticipant || sessionStatus === "ended") return;
+    if (clearedStaleEndFlagRef.current) return;
+    clearedStaleEndFlagRef.current = true;
     (async () => {
       try {
         const meta = JSON.parse(localParticipant.metadata || "{}");
@@ -989,7 +1028,8 @@ function MyVideoConference({
         if (data.action === "SESSION_ENDED" && !isMentor) {
           devLog("Received SESSION_ENDED signal");
           setSessionStatus("ended");
-          setTimeout(() => {
+          navigatingRef.current = true;
+          endPollTimerRef.current = setTimeout(() => {
             room.disconnect();
             navigate("/", { replace: true });
           }, 3000);

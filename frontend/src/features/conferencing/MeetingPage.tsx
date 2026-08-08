@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabaseClient";
 import { MeetingView } from "../../components/conferencing/MeetingView";
@@ -17,6 +17,9 @@ export const MeetingPage: React.FC = () => {
   >("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  // Mirrors `token` so the realtime handlers (which close over the first-render
+  // value) can check "already joined" without capturing a stale null.
+  const hasTokenRef = useRef(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -100,6 +103,7 @@ export const MeetingPage: React.FC = () => {
             },
           );
           setToken(data.participant_token);
+          hasTokenRef.current = true;
           setServerUrl(data.server_url);
           setStatus("permissions");
           // User has joined — waiting-room channels are no longer needed.
@@ -139,12 +143,19 @@ export const MeetingPage: React.FC = () => {
     const debouncedJoin = () => {
       if (realtimeDebounce) clearTimeout(realtimeDebounce);
       realtimeDebounce = setTimeout(() => {
+        // Supersede any in-flight checkSessionAndJoin — aborting the prior
+        // controller lets its catch/finally see signal.aborted and skip state
+        // mutations, instead of letting a stale fetch land after the newer one.
+        abortController?.abort();
         abortController = new AbortController();
         checkSessionAndJoin(abortController.signal);
       }, 500);
     };
 
-    checkSessionAndJoin();
+    // Give the initial call its own signal so the unmount cleanup can abort it
+    // (and so a teardown can't be followed by a late setStatus/setToken).
+    abortController = new AbortController();
+    checkSessionAndJoin(abortController.signal);
 
     participantSub = supabase
       .channel(`session_participants_${sessionId}`)
@@ -179,11 +190,11 @@ export const MeetingPage: React.FC = () => {
         (payload) => {
           // Only re-run join when we're not already connected/joining (the `live`
           // event is only needed before the initial join, not on every update).
-          if (
+          const needsInitialJoin =
             payload.new.status === "live" &&
-            !token &&
-            !joiningRef.current
-          ) {
+            !hasTokenRef.current &&
+            !joiningRef.current;
+          if (needsInitialJoin) {
             debouncedJoin();
           }
         },

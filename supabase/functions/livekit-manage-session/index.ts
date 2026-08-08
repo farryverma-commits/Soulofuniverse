@@ -6,6 +6,7 @@ import {
   EncodedFileType,
   RoomServiceClient,
 } from "npm:livekit-server-sdk@2.1.2";
+import { authorizeTelemetry } from "./telemetry_auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,51 +72,143 @@ Deno.serve(async (req: Request) => {
       throw new Error("Session ID and action are required");
     }
 
-    // log_disconnect: any authenticated participant can log their own disconnect.
-    // Handled before session ownership checks so all participants can report drops.
-    if (action === "log_disconnect") {
-      const { user_id, is_host, reason, connection_type, user_agent, disconnected_at } =
+    // log_disconnect / log_event: any authenticated participant can report their
+    // own disconnect/lifecycle telemetry. These run BEFORE the session ownership
+    // check so all participants (not just the host) can report drops.
+    //
+    // Identity is derived from the authenticated user, never from the request
+    // payload: the payload's user_id/is_host are client-controlled and could be
+    // forged (e.g. is_host: true to fake host-drop telemetry, or write logs for
+    // arbitrary sessions). Reject callers who are neither the host, a trusted
+    // mentor/admin, nor a participant of the session.
+    if (action === "log_disconnect" || action === "log_event") {
+      const { data: telemetrySession } = await supabaseAdmin
+        .from("group_sessions")
+        .select("mentor_id")
+        .eq("id", session_id)
+        .single();
+
+      if (!telemetrySession) {
+        throw new Error("Session not found");
+      }
+
+      // Trusted mentors/admins may join sessions without a session_participants
+      // row, so they must be allowed to report too — but only once their
+      // account has platform approval (approve_user()).
+      const { data: callerProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("role, status")
+        .eq("id", user.id)
+        .single();
+
+      const { data: participantRow } = await supabaseAdmin
+        .from("session_participants")
+        .select("user_id, status")
+        .eq("session_id", session_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const authResult = authorizeTelemetry({
+        hostUserId: telemetrySession.mentor_id,
+        callerUserId: user.id,
+        callerProfile,
+        participantRow: participantRow
+          ? {
+              participantUserId: participantRow.user_id,
+              status: participantRow.status,
+            }
+          : null,
+      });
+
+      if (!authResult.allowed) {
+        return new Response(
+          JSON.stringify({ error: authResult.reason }),
+          {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+            status: 403,
+          },
+        );
+      }
+
+      const callerIsHost = authResult.callerIsHost;
+
+      const { reason, connection_type, user_agent, disconnected_at, event_type } =
         payload || {};
 
-      await supabaseAdmin.from("meeting_logs").insert({
-        session_id,
-        event_type: is_host ? "host_disconnected_unexpectedly" : "participant_disconnected_unexpectedly",
-        payload: { user_id, reason, connection_type, user_agent, disconnected_at },
-      });
+      const logPayload: Record<string, unknown> = {
+        user_id: user.id,
+        is_host: callerIsHost,
+      };
 
-      if (is_host) {
+      // Validate and bound every client-supplied field. The whitelist bounds
+      // keys, but unbounded string values could still bloat the jsonb payload.
+      const str = (v: unknown, max: number) =>
+        typeof v === "string" && v.length <= max ? v : undefined;
+      const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+
+      const reasonVal = str(reason, 200);
+      const connectionTypeVal = str(connection_type, 50);
+      const userAgentVal = str(user_agent, 200);
+      const disconnectedAtVal = str(disconnected_at, 64);
+      if (reasonVal !== undefined) logPayload.reason = reasonVal;
+      if (connectionTypeVal !== undefined) {
+        logPayload.connection_type = connectionTypeVal;
+      }
+      if (userAgentVal !== undefined) logPayload.user_agent = userAgentVal;
+      if (disconnectedAtVal !== undefined) {
+        logPayload.disconnected_at = disconnectedAtVal;
+      }
+
+      if (action === "log_event") {
+        // Only documented client telemetry event types may be written — never
+        // server-owned lifecycle names like session_ended / recording_started.
+        const { attempt, from_state, logged_at } = payload || {};
+        const attemptVal = num(attempt);
+        const fromStateVal = str(from_state, 100);
+        const loggedAtVal = str(logged_at, 64);
+
+        if (attemptVal !== undefined) logPayload.attempt = attemptVal;
+        if (fromStateVal !== undefined) logPayload.from_state = fromStateVal;
+        if (loggedAtVal !== undefined) logPayload.logged_at = loggedAtVal;
+      }
+
+      const CLIENT_EVENT_TYPES = [
+        "host_rejoin_attempt",
+        "host_rejoined",
+        "host_reconnected",
+        "generic_event",
+      ];
+      const resolvedEventType =
+        action === "log_disconnect"
+          ? callerIsHost
+            ? "host_disconnected_unexpectedly"
+            : "participant_disconnected_unexpectedly"
+          : CLIENT_EVENT_TYPES.includes(event_type)
+            ? event_type
+            : "generic_event";
+
+      const { error: logError } = await supabaseAdmin
+        .from("meeting_logs")
+        .insert({
+          session_id,
+          event_type: resolvedEventType,
+          payload: logPayload,
+        });
+
+      if (logError) {
+        console.error("Failed to record meeting log:", logError);
+      }
+
+      if (callerIsHost) {
         console.warn(
-          `[meeting] HOST dropped: session=${session_id}, reason=${reason}, conn=${connection_type}`
+          `[meeting] HOST ${action}: session=${session_id}, reason=${reason}`,
         );
       }
 
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // log_event: any authenticated participant can log a critical lifecycle event
-    // (rejoin attempts, reconnected, etc.) for production post-mortem analysis.
-    // Handled before session ownership checks so all participants can report.
-    if (action === "log_event") {
-      // user_id/is_host must be destructured here from THIS action's payload —
-      // previously they were referenced from the log_disconnect block scope,
-      // which threw a ReferenceError and silently dropped all rejoin telemetry.
-      const { event_type, user_id, is_host, ...extra } = payload || {};
-
-      await supabaseAdmin.from("meeting_logs").insert({
-        session_id,
-        event_type: event_type || "generic_event",
-        payload: { user_id, is_host, ...extra },
-      });
-
-      if (is_host) {
-        console.warn(
-          `[meeting] HOST event: session=${session_id}, event=${event_type}`
-        );
-      }
-
-      return new Response(JSON.stringify({ success: true }), {
+      return new Response(JSON.stringify({ success: !logError }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
