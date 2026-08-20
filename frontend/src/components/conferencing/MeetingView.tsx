@@ -63,6 +63,7 @@ interface MeetingViewProps {
   serverUrl: string;
   sessionId: string;
   isMentor: boolean;
+  isAdmin?: boolean;
   mentorId: string;
   onDisconnected: () => void;
 }
@@ -72,6 +73,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   serverUrl,
   sessionId,
   isMentor,
+  isAdmin = false,
   mentorId,
   onDisconnected,
 }) => {
@@ -128,6 +130,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         <MyVideoConference
           sessionId={sessionId}
           isMentor={isMentor}
+          isAdmin={isAdmin}
           mentorId={mentorId}
         />
         <RoomAudioRenderer />
@@ -139,12 +142,15 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
 function MyVideoConference({
   sessionId,
   isMentor,
+  isAdmin = false,
   mentorId,
 }: {
   sessionId: string;
   isMentor: boolean;
+  isAdmin?: boolean;
   mentorId: string;
 }) {
+  const isHost = isMentor || isAdmin;
   const navigate = useNavigate();
   const [layout, setLayout] = useState<"grid" | "speaker">("speaker");
 
@@ -257,7 +263,7 @@ function MyVideoConference({
               action: "log_disconnect",
               payload: {
                 user_id: localParticipantRef.current?.identity,
-                is_host: isMentor,
+                is_host: isHost,
                 reason: reasonName,
                 connection_type:
                   (navigator as any).connection?.effectiveType || "unknown",
@@ -271,7 +277,7 @@ function MyVideoConference({
         /* fire-and-forget */
       }
     },
-    [sessionId, isMentor, localParticipant],
+    [sessionId, isHost, localParticipant],
   );
 
   // Generic DB event logger for critical reconnection lifecycle events
@@ -296,7 +302,7 @@ function MyVideoConference({
               action: "log_event",
               payload: {
                 user_id: localParticipant?.identity,
-                is_host: isMentor,
+                is_host: isHost,
                 event_type: eventType,
                 connection_type:
                   (navigator as any).connection?.effectiveType || "unknown",
@@ -311,7 +317,7 @@ function MyVideoConference({
         /* fire-and-forget */
       }
     },
-    [sessionId, isMentor],
+    [sessionId, isHost],
   );
 
   // Resume audio + re-assert mic/camera after an interruption/reconnect. On
@@ -787,9 +793,7 @@ function MyVideoConference({
   );
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const prevIsDesktopRef = useRef(window.innerWidth >= 768);
-  const [sidebarTab, setSidebarTab] = useState<
-    "chat" | "participants" | "approval"
-  >("chat");
+  const [sidebarTab, setSidebarTab] = useState<"chat" | "participants">("chat");
   //const [isRecording, setIsRecording] = useState(false);
   //const [egressId, setEgressId] = useState<string | null>(null);
   // const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
@@ -798,6 +802,34 @@ function MyVideoConference({
   // const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 375);
+  useEffect(() => {
+    const onNarrow = () => setIsNarrow(window.innerWidth < 375);
+    window.addEventListener("resize", onNarrow);
+    return () => window.removeEventListener("resize", onNarrow);
+  }, []);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const doEndSession = async () => {
+    setShowEndConfirm(false);
+    navigatingRef.current = true;
+    try {
+      const encoder = new TextEncoder();
+      await localParticipant.publishData(encoder.encode(JSON.stringify({ action: "SESSION_ENDED" })), { reliable: true });
+      const currentMeta = JSON.parse(localParticipant.metadata || "{}");
+      await localParticipant.setMetadata(JSON.stringify({ ...currentMeta, isSessionEnded: true }));
+      setSessionStatus("ended");
+      const { data: authData } = await supabase.auth.getSession();
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authData.session?.access_token}` },
+        body: JSON.stringify({ session_id: sessionId, action: "end" }),
+      }).catch((err) => console.warn("Backend cleanup failed:", err));
+      setTimeout(() => { room.disconnect(); navigate("/", { replace: true }); }, 2000);
+    } catch (err) {
+      console.error(err);
+      room.disconnect();
+    }
+  };
   const [unreadChat, setUnreadChat] = useState(0);
   const [lastSeenChatCount, setLastSeenChatCount] = useState(
     chatMessages.length,
@@ -1025,7 +1057,7 @@ function MyVideoConference({
         const data = JSON.parse(str);
         devLog("Data message received:", data);
 
-        if (data.action === "SESSION_ENDED" && !isMentor) {
+        if (data.action === "SESSION_ENDED" && !isHost) {
           devLog("Received SESSION_ENDED signal");
           setSessionStatus("ended");
           navigatingRef.current = true;
@@ -1036,7 +1068,7 @@ function MyVideoConference({
           return;
         }
 
-        if (data.action === "MUTE_ALL" && !isMentor) {
+        if (data.action === "MUTE_ALL" && !isHost) {
           devLog("Received MUTE_ALL command");
           await localParticipant.setMicrophoneEnabled(false);
         }
@@ -1066,10 +1098,10 @@ function MyVideoConference({
     return () => {
       room.off("dataReceived", onDataReceived);
     };
-  }, [room, localParticipant, isMentor]);
+  }, [room, localParticipant, isHost]);
 
   const handleMuteAll = async () => {
-    if (!isMentor || !localParticipant) return;
+    if (!isHost || !localParticipant) return;
 
     try {
       // 1. Update Mentor's metadata to signal global mute
@@ -1286,9 +1318,9 @@ function MyVideoConference({
             )}
           </div> */}
 
-          {/* Reconnection banner — non-intrusive, matching Zoom/Meet/Teams pattern */}
+          {/* Reconnection banner — hidden on mobile (pill shows it), non-intrusive on desktop */}
           {connState === "reconnecting" && !showReconnectOverlay && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-500/90 backdrop-blur-md text-black px-4 py-2 rounded-full flex items-center gap-2 shadow-lg animate-in slide-in-from-top-2 duration-300">
+            <div className="hidden md:flex absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-500/90 backdrop-blur-md text-black px-4 py-2 rounded-full items-center gap-2 shadow-lg animate-in slide-in-from-top-2 duration-300">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm font-medium">Reconnecting...</span>
             </div>
@@ -1310,8 +1342,8 @@ function MyVideoConference({
             </div>
           )}
 
-          {/* Reconnection overlay — full takeover after 15s of banner */}
-          {connState === "reconnecting" && showReconnectOverlay && (
+          {/* Reconnection overlay — full takeover after 15s of banner (desktop only; mobile stays on pill badge) */}
+          {connState === "reconnecting" && showReconnectOverlay && !isMobile && (
             <div className="absolute inset-0 bg-black/70 z-50 flex flex-col items-center justify-center backdrop-blur-sm animate-in fade-in duration-500">
               <OrbitalLoader variant="inline" />
               <p className="mt-6 text-white/80 text-lg font-medium">
@@ -1410,7 +1442,7 @@ function MyVideoConference({
             </div>
           )}
 
-          <div className="flex-1 overflow-hidden p-2 md:p-6 mb-24 md:mb-28">
+          <div className="flex-1 overflow-hidden p-2 md:p-6 mb-[max(5.5rem,calc(env(safe-area-inset-bottom,0px)+5rem))] md:mb-28">
             {/* Empty room — nobody here yet */}
             {tracks.length === 0 && allParticipants.length <= 1 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
@@ -1462,7 +1494,13 @@ function MyVideoConference({
                 style={{ contain: "layout paint" }}
               >
                 <div className="absolute inset-0">
-                  {mainTrack && <CustomParticipantTile trackRef={mainTrack} />}
+                  {mainTrack && (
+                    <CustomParticipantTile
+                      trackRef={mainTrack}
+                      isHostTile={String(mainTrack.participant.identity) === String(mentorId)}
+                      isAdminTile={false}
+                    />
+                  )}
                 </div>
                 {/* Host Reconnecting fallback — matches Zoom/Meet frozen-tile
                     pattern. Covers both windows: host fully removed from the
@@ -1470,7 +1508,7 @@ function MyVideoConference({
                     lingering (frozen track) via the faster Lost-quality signal.
                     Rendered after the video layer so it overlays the dead frame. */}
                 {((!mainTrack && !mentorPresent) || mentorConnectionLost) &&
-                  !isMentor &&
+                  !isHost &&
                   sessionStatus !== "ended" && (
                     <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A14] to-[#12121F] flex flex-col items-center justify-center">
                       <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-primary/10">
@@ -1529,33 +1567,45 @@ function MyVideoConference({
 
           {/* Conference Control Bar */}
           {isMobile && !showSidebar ? (
-            <div className="fixed bottom-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-3.5 animate-in slide-in-from-bottom-8 duration-500">
-              {isMentor && (
-                <MediaControl
-                  source={Track.Source.Camera}
-                  minimal
-                  onIcon={<Video className="w-5 h-5" />}
-                  offIcon={<VideoOff className="w-5 h-5" />}
-                />
+            <div className="fixed bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-1.5 sm:gap-2 max-w-[96vw] sm:max-w-[min(96vw,420px)] w-auto justify-center overflow-x-auto snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [scrollbar-width:none] animate-in slide-in-from-bottom-8 duration-500">
+              {connState === "reconnecting" && (
+                <span className="shrink-0 snap-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500 text-black text-[10px] font-black tracking-widest uppercase">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Reconnecting
+                </span>
               )}
-              <MediaControl
-                source={Track.Source.Microphone}
-                minimal={true}
-                onIcon={<Mic className="w-5 h-5" />}
-                offIcon={<MicOff className="w-5 h-5" />}
-              />
-              <ControlActionButton
-                onClick={toggleHand}
-                icon={
-                  <Hand
-                    className={`w-5 h-5 ${isHandRaised ? "text-yellow-400 fill-current" : "text-white"}`}
+              {isHost && !isNarrow && (
+                <span className="snap-start shrink-0">
+                  <MediaControl
+                    source={Track.Source.Camera}
+                    minimal
+                    onIcon={<Video className="w-5 h-5" />}
+                    offIcon={<VideoOff className="w-5 h-5" />}
                   />
-                }
-                isActive={isHandRaised}
-                minimal={true}
-              />
+                </span>
+              )}
+              <span className="snap-start shrink-0">
+                <MediaControl
+                  source={Track.Source.Microphone}
+                  minimal={true}
+                  onIcon={<Mic className="w-5 h-5" />}
+                  offIcon={<MicOff className="w-5 h-5" />}
+                />
+              </span>
+              <span className="snap-start shrink-0">
+                <ControlActionButton
+                  onClick={toggleHand}
+                  aria-label={isHandRaised ? "Lower hand" : "Raise hand"}
+                  icon={
+                    <Hand
+                      className={`w-5 h-5 ${isHandRaised ? "text-yellow-400 fill-current" : "text-white"}`}
+                    />
+                  }
+                  isActive={isHandRaised}
+                  minimal={true}
+                />
+              </span>
 
-              <div className="relative">
+              <div className="relative snap-start shrink-0">
                 <ControlActionButton
                   onClick={() => {
                     setSidebarTab("chat");
@@ -1563,6 +1613,7 @@ function MyVideoConference({
                     setShowMoreMenu(false);
                     setUnreadChat(0);
                   }}
+                  aria-label="Open chat"
                   icon={<MessageSquare className="w-5 h-5" />}
                   minimal={true}
                 />
@@ -1573,16 +1624,17 @@ function MyVideoConference({
                 )}
               </div>
 
-              <div className="relative">
+              <div className="relative snap-start shrink-0">
                 <button
                   onClick={() => setShowMoreMenu(!showMoreMenu)}
-                  className={`w-11 h-14 rounded-full flex flex-col items-center justify-center transition-all bg-white/10 hover:bg-white/20 active:scale-95 ${showMoreMenu ? "bg-white/20" : ""}`}
+                  aria-label="More options"
+                  className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-95 border ${showMoreMenu ? "bg-white text-gray-900 border-white" : "bg-white/10 hover:bg-white/20 text-white border-white/10"}`}
                 >
-                  <MoreVertical className="w-5 h-5 text-white" />
+                  <MoreVertical className="w-5 h-5" />
                 </button>
 
                 {showMoreMenu && (
-                  <div className="absolute bottom-full right-0 mb-6 w-64 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300">
+                  <div className="absolute bottom-full right-0 mb-6 w-[min(72vw,16rem)] max-w-[72vw] bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300">
                     <div className="px-5 py-4 border-b border-white/5 bg-white/5">
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
                         Session Controls
@@ -1615,20 +1667,45 @@ function MyVideoConference({
                           setShowSidebar(true);
                           setShowMoreMenu(false);
                         }}
-                        className="w-full px-5 py-4 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
+                        className="w-full px-5 py-4 text-left flex items-center justify-between hover:bg-white/5 transition-colors group"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
-                          <Users className="w-4 h-4 text-purple-400" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-200">
-                            Participants
+                        <span className="flex items-center gap-4">
+                          <span className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                            <Users className="w-4 h-4 text-purple-400" />
                           </span>
-                          {/* <span className="text-[10px] text-gray-500">
-                            Manage everyone
-                          </span> */}
-                        </div>
+                          <span className="text-sm font-bold text-gray-200">Participants</span>
+                        </span>
+                        <span className="text-xs font-black text-gray-500">{allParticipants.length}</span>
                       </button>
+                      {isHost && (
+                        <button
+                          onClick={async () => { await handleMuteAll(); setShowMoreMenu(false); }}
+                          className="w-full px-5 py-3.5 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
+                        >
+                          <span className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+                            <MicOff className="w-4 h-4 text-red-400" />
+                          </span>
+                          <span className="text-sm font-bold text-gray-200">Mute All</span>
+                        </button>
+                      )}
+                      {isNarrow && isHost && (
+                        <button
+                          onClick={async () => {
+                            const lp: any = localParticipant;
+                            try { await lp.setCameraEnabled(!lp.isCameraEnabled); } catch {}
+                            setShowMoreMenu(false);
+                          }}
+                          className="w-full px-5 py-3.5 text-left flex items-center gap-4 hover:bg-white/5 transition-colors"
+                        >
+                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${localParticipant?.isCameraEnabled ? "bg-green-500/20" : "bg-white/5"}`}>
+                            {localParticipant?.isCameraEnabled ? <Video className="w-4 h-4 text-green-400" /> : <VideoOff className="w-4 h-4 text-gray-400" />}
+                          </span>
+                          <span className="flex flex-col text-left">
+                            <span className="text-sm font-bold text-gray-200">Camera</span>
+                            <span className="text-[10px] text-gray-500">{localParticipant?.isCameraEnabled ? "On — tap to turn off" : "Off — tap to turn on"}</span>
+                          </span>
+                        </button>
+                      )}
                       {/* <button
                         onClick={() => {
                           setLayout(layout === "grid" ? "speaker" : "grid");
@@ -1650,7 +1727,7 @@ function MyVideoConference({
                         </div>
                       </button> */}
 
-                      {isMentor && (
+                      {isHost && (
                         <>
                           <div className="mx-5 my-2 border-t border-white/5" />
                           <button
@@ -1717,37 +1794,17 @@ function MyVideoConference({
                 )}
               </div>
 
-              <div className="w-[1px] h-6 bg-white/10 mx-1" />
+              <div className="w-[1px] h-6 bg-white/10 mx-1 shrink-0" />
 
               <button
                 onClick={async () => {
+                  if (isHost) { setShowEndConfirm(true); return; }
                   navigatingRef.current = true;
-                  if (isMentor) {
-                    try {
-                      const { data: authData } =
-                        await supabase.auth.getSession();
-                      await fetch(
-                        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-                        {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${authData.session?.access_token}`,
-                          },
-                          body: JSON.stringify({
-                            session_id: sessionId,
-                            action: "end",
-                          }),
-                        },
-                      );
-                    } catch (err) {
-                      console.error(err);
-                    }
-                  }
                   room.disconnect();
                   navigate("/", { replace: true });
                 }}
-                className="w-12 h-12 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-all"
+                aria-label={isHost ? "End session" : "Leave"}
+                className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 snap-start bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-all"
               >
                 <PhoneOff className="w-5 h-5 fill-current" />
               </button>
@@ -1784,8 +1841,8 @@ function MyVideoConference({
                     )}
                   </div>
 
-                  {/* Camera Control */}
-                  {isMentor && (
+                  {/* Camera Control — host only (mentor + admin co-host, join-muted) */}
+                  {isHost && (
                     <div className="relative group">
                       <div className="relative flex items-center bg-white/10 rounded-2xl border border-white/10 transition-all overflow-hidden shadow-lg hover:border-white/30">
                         <MediaControl
@@ -1875,7 +1932,7 @@ function MyVideoConference({
                     activeColor="text-yellow-400"
                   />
 
-                  {isMentor && (
+                  {isHost && (
                     <ControlActionButton
                       onClick={async () => {
                         const isEnabled =
@@ -1929,72 +1986,32 @@ function MyVideoConference({
 
                   <button
                     onClick={async () => {
+                      if (isHost) { setShowEndConfirm(true); return; }
                       navigatingRef.current = true;
-                      if (isMentor) {
-                        try {
-                          // 1. Broadcast SESSION_ENDED via data channel for instant notification
-                          const encoder = new TextEncoder();
-                          await localParticipant.publishData(
-                            encoder.encode(
-                              JSON.stringify({ action: "SESSION_ENDED" }),
-                            ),
-                            { reliable: true },
-                          );
-
-                          // 2. Signal through metadata as backup
-                          const currentMeta = JSON.parse(
-                            localParticipant.metadata || "{}",
-                          );
-                          await localParticipant.setMetadata(
-                            JSON.stringify({
-                              ...currentMeta,
-                              isSessionEnded: true,
-                            }),
-                          );
-
-                          setSessionStatus("ended");
-
-                          // 3. Cleanup via backend
-                          const { data: authData } =
-                            await supabase.auth.getSession();
-                          fetch(
-                            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${authData.session?.access_token}`,
-                              },
-                              body: JSON.stringify({
-                                session_id: sessionId,
-                                action: "end",
-                              }),
-                            },
-                          ).catch((err) =>
-                            console.warn("Backend cleanup failed:", err),
-                          );
-
-                          // 4. Disconnect and redirect
-                          setTimeout(() => {
-                            room.disconnect();
-                            navigate("/", { replace: true });
-                          }, 2000);
-                        } catch (err) {
-                          console.error(err);
-                          room.disconnect();
-                        }
-                      } else {
-                        room.disconnect();
-                        navigate("/", { replace: true });
-                      }
+                      room.disconnect();
+                      navigate("/", { replace: true });
                     }}
-                    className="w-12 h-12 md:w-auto md:px-6 md:py-4 bg-red-500 hover:bg-red-600 rounded-full md:rounded-2xl flex items-center justify-center gap-2 text-white shadow-lg active:scale-95 transition-all group"
+                    aria-label={isHost ? "End session" : "Leave"}
+                    className="w-12 h-12 md:w-auto md:px-6 md:py-4 bg-red-500 hover:bg-red-600 rounded-full md:rounded-2xl flex items-center justify-center gap-2 text-white shadow-lg active:scale-90 transition-all group"
                   >
                     <PhoneOff className="w-5 h-5 fill-current" />
                     <span className="hidden md:inline text-xs font-black uppercase tracking-widest">
-                      {isMentor ? "End Session" : "Leave"}
+                      {isHost ? "End Session" : "Leave"}
                     </span>
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showEndConfirm && (
+            <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                <h3 className="text-sm font-bold text-white mb-1">End session?</h3>
+                <p className="text-xs text-white/60 mb-5">Everyone will be disconnected. This cannot be undone.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowEndConfirm(false)} className="flex-1 py-2.5 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/15">Stay</button>
+                  <button onClick={doEndSession} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-xs font-black hover:bg-red-600">End Session</button>
                 </div>
               </div>
             </div>
@@ -2036,6 +2053,7 @@ function MyVideoConference({
           <ConferencingSidebar
             sessionId={sessionId}
             isMentor={isMentor}
+            isAdmin={isAdmin}
             activeTab={sidebarTab}
             onTabChange={setSidebarTab}
             onMuteAll={handleMuteAll}
@@ -2100,6 +2118,16 @@ const CustomParticipantTile = React.memo(function CustomParticipantTile(
           <span className="text-[10px] font-bold text-white tracking-wide truncate">
             {p.name || p.identity}
           </span>
+          {props.isAdminTile && (
+            <span className="shrink-0 text-[7px] font-black tracking-widest uppercase px-1.5 py-0.5 rounded bg-[#7B5EA8]/30 border border-[#7B5EA8]/40 text-[#C9B6FF]">
+              Admin
+            </span>
+          )}
+          {props.isHostTile && !props.isAdminTile && (
+            <span className="shrink-0 text-[7px] font-black tracking-widest uppercase px-1.5 py-0.5 rounded bg-primary/20 border border-primary/30 text-primary">
+              Host
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -2243,11 +2271,13 @@ function ControlActionButton({
   activeColor = "text-white",
   minimal,
   badge,
+  "aria-label": ariaLabel,
 }: any) {
   if (minimal) {
     return (
       <button
         onClick={onClick}
+        aria-label={ariaLabel || label}
         className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
           isActive
             ? "bg-white text-gray-900 border border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]"
@@ -2269,6 +2299,7 @@ function ControlActionButton({
   return (
     <button
       onClick={onClick}
+      aria-label={ariaLabel || label}
       className={`px-2 py-2 md:px-4 md:py-3 rounded-2xl flex flex-col items-center gap-1 md:gap-1.5 transition-all hover:bg-white/10 min-w-[50px] md:min-w-[80px] group ${isActive ? "bg-white/15 shadow-inner" : ""}`}
     >
       <div className="relative transition-transform duration-200 group-hover:scale-110">
@@ -2317,7 +2348,7 @@ function DeviceMenu({
   };
 
   return (
-    <div className="absolute bottom-full left-0 mb-4 w-64 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up">
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0 mb-4 w-[min(72vw,16rem)] max-w-[72vw] bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up">
       <div className="px-4 py-3 border-b border-white/5 bg-white/5 flex items-center justify-between">
         <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
           Select {kind === "audioinput" ? "Microphone" : "Camera"}

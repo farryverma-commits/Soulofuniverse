@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import type { RootState } from "../../store";
 import { supabase } from "../../services/supabaseClient";
 import { MeetingView } from "../../components/conferencing/MeetingView";
 import { ShieldAlert, Lock, Video } from "lucide-react";
@@ -11,9 +13,12 @@ export const MeetingPage: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [isMentor, setIsMentor] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [mentorId, setMentorId] = useState<string | null>(null);
+  const role = useSelector((s: RootState) => s.auth.role);
+  const isHost = isMentor || isAdmin;
   const [status, setStatus] = useState<
-    "loading" | "waiting" | "ready" | "error" | "not_started" | "permissions"
+    "loading" | "ready" | "error" | "not_started" | "permissions"
   >("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -31,15 +36,10 @@ export const MeetingPage: React.FC = () => {
     let abortController: AbortController | null = null;
     let realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
 
-    // Track subscriptions so we can tear them down once the user has joined.
-    // Declared before checkSessionAndJoin so the closure can reference them.
-    let participantSub: ReturnType<typeof supabase.channel> | null = null;
     let sessionSub: ReturnType<typeof supabase.channel> | null = null;
 
     const cleanupRealtimeChannels = () => {
-      participantSub?.unsubscribe();
       sessionSub?.unsubscribe();
-      participantSub = null;
       sessionSub = null;
     };
 
@@ -71,7 +71,9 @@ export const MeetingPage: React.FC = () => {
           return;
         }
 
+        const isAdminVal = role === "admin";
         setIsMentor(session.mentor_id === user.id);
+        setIsAdmin(isAdminVal);
         setMentorId(session.mentor_id);
 
         const response = await fetch(
@@ -106,26 +108,10 @@ export const MeetingPage: React.FC = () => {
           hasTokenRef.current = true;
           setServerUrl(data.server_url);
           setStatus("permissions");
-          // User has joined — waiting-room channels are no longer needed.
-          // Unsubscribe to release the DB replication slots.
           cleanupRealtimeChannels();
         } else {
-          if (data.error?.includes("Approval required")) {
-            setStatus("waiting");
-            await supabase.from("session_participants").upsert(
-              {
-                session_id: sessionId,
-                user_id: user.id,
-                status: "pending",
-              },
-              {
-                onConflict: "session_id,user_id",
-              },
-            );
-          } else {
-            setStatus("error");
-            setErrorMsg(data.error || "Failed to join meeting.");
-          }
+          setStatus("error");
+          setErrorMsg(data.error || "Failed to join meeting.");
         }
       } catch (err) {
         if (!signal?.aborted) {
@@ -157,26 +143,6 @@ export const MeetingPage: React.FC = () => {
     abortController = new AbortController();
     checkSessionAndJoin(abortController.signal);
 
-    participantSub = supabase
-      .channel(`session_participants_${sessionId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "session_participants",
-          filter: `session_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          if (payload.new.status === "approved") debouncedJoin();
-          if (payload.new.status === "rejected") {
-            setStatus("error");
-            setErrorMsg("Your request to join was declined by the host.");
-          }
-        },
-      )
-      .subscribe();
-
     sessionSub = supabase
       .channel(`group_session_${sessionId}`)
       .on(
@@ -207,7 +173,7 @@ export const MeetingPage: React.FC = () => {
       joiningRef.current = false;
       cleanupRealtimeChannels();
     };
-  }, [sessionId, navigate]);
+  }, [sessionId, navigate, role]);
 
   if (status === "loading") {
     return <OrbitalLoader variant="page" label="Connecting to session..." />;
@@ -220,15 +186,17 @@ export const MeetingPage: React.FC = () => {
           <Lock size={24} className="text-primary" />
         </div>
         <h2 className="text-xl font-bold text-text mb-1">
-          {isMentor ? "Ready to start?" : "Meeting not started"}
+          {isHost ? "Ready to start?" : "Meeting not started"}
         </h2>
         <p className="text-text-secondary text-sm max-w-sm">
-          {isMentor
-            ? "You are the host. Click below to go live and allow participants to join."
+          {isHost
+            ? isAdmin
+              ? "You are joining as Admin co-host. Start the session on behalf of the mentor."
+              : "You are the host. Click below to go live and allow participants to join."
             : "The host hasn't started this meeting yet. Please wait or check back later."}
         </p>
         <div className="flex gap-3 mt-6">
-          {isMentor && (
+          {isHost && (
             <button
               disabled={isStarting}
               onClick={async () => {
@@ -273,24 +241,6 @@ export const MeetingPage: React.FC = () => {
             Back to dashboard
           </button>
         </div>
-      </div>
-    );
-  }
-
-  if (status === "waiting") {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
-        <OrbitalLoader variant="inline" label="Waiting for host..." />
-        <h2 className="text-xl font-bold text-text mt-6 mb-1">
-          Waiting for approval
-        </h2>
-        <p className="text-text-secondary text-sm max-w-sm mb-6">
-          The meeting requires host approval. You'll enter automatically once
-          approved.
-        </p>
-        <button onClick={() => navigate("/")} className="btn-secondary text-sm">
-          Back to dashboard
-        </button>
       </div>
     );
   }
@@ -360,6 +310,7 @@ export const MeetingPage: React.FC = () => {
       serverUrl={serverUrl!}
       sessionId={sessionId!}
       isMentor={isMentor}
+      isAdmin={isAdmin}
       mentorId={mentorId!}
       onDisconnected={() => {
         // All intentional leave/end paths now call navigate() explicitly.

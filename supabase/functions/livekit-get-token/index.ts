@@ -98,21 +98,6 @@ Deno.serve(async (req: Request) => {
 
     const isAdmin = profile.role === "admin";
     const isHost = session.mentor_id === user.id;
-    const isTrustedUser = isAdmin || profile.role === "mentor";
-
-    // 3. If not a trusted user (host/mentor/admin), check if approved (if required)
-    if (!isTrustedUser && session.require_approval) {
-      const { data: participant, error: partError } = await supabaseAdmin
-        .from("session_participants")
-        .select("status")
-        .eq("session_id", session_id)
-        .eq("user_id", user.id)
-        .single();
-
-      if (partError || participant?.status !== "approved") {
-        throw new Error("Approval required to join this meeting");
-      }
-    }
 
     // 4. Remove stale participant from LiveKit room if reconnecting
     // Prevents "could not restart participant" error (LiveKit Issues #3456/#3475).
@@ -181,7 +166,7 @@ Deno.serve(async (req: Request) => {
       canSubscribe: true,
       roomAdmin: isHost || isAdmin,
       canUpdateOwnMetadata: true,
-      roomRecord: isHost ?? false,
+      roomRecord: isHost || isAdmin,
     });
 
     const participantToken = await at.toJwt();

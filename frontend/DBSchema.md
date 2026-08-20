@@ -149,8 +149,8 @@ Stores the scheduled meetings created by mentors.
 
 **RLS Rules:**
 
-- `Approved users can view sessions via JWT`: `SELECT` where `auth.jwt() #>> '{app_metadata, user_status}' = 'approved'`.
-- `Mentor manage`: Mentors can `INSERT`, `UPDATE`, `DELETE` where `auth.uid() = mentor_id`.
+- `Approved users can view sessions via JWT`: `SELECT` where `auth.jwt() #>> '{app_metadata, user_status}' = 'approved'` (tightened in `20260819000001_admin_cohost_session_participants.sql`).
+- `Mentor manage`: Mentors can `INSERT`, `UPDATE`, `DELETE` where `auth.uid() = mentor_id`. Admin session lifecycle (start/end/recording) is via `livekit-manage-session` service role, not direct table writes.
 
 ---
 
@@ -168,8 +168,9 @@ Handles the "Waiting Room" and tracks who attended.
 
 **RLS Rules:**
 
-- `User view/insert`: Users can `SELECT` and `INSERT` their own records (to join/request access).
-- `Mentor manage`: Mentors can `SELECT` and `UPDATE` records for their own sessions (to admit/deny).
+- `Users manage own`: Users can `SELECT`/`INSERT`/`UPDATE`/`DELETE` their own records (to join/request access) — `auth.uid() = user_id`.
+- `Mentors manage own sessions`: Mentors can `ALL` on rows where `group_sessions.mentor_id = auth.uid()` (admit/deny).
+- `Admins manage (co-host)`: Approved admins (`auth.jwt() #>> '{app_metadata,user_role}' = 'admin' AND user_status = 'approved'`) can `ALL` on `session_participants` — co-host moderation (Mute All / Mute user / Lower Hand and participant list). Synced via `sync_profile_to_auth_metadata()` trigger; no `EXISTS (select from profiles)` recursion. Added in `20260819000001_admin_cohost_session_participants.sql`; `group_sessions` SELECT also tightened to `user_status='approved'` JWT check in the same migration.
 
 ---
 

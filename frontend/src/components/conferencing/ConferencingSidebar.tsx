@@ -2,19 +2,16 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   useParticipants,
   useLocalParticipant,
-  VideoTrack,
-  useTracks,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
-import { supabase } from "../../services/supabaseClient";
-import { Hand, UserCheck, Users, MessageSquare, MicOff } from "lucide-react";
+import { Hand, Users, MessageSquare, MicOff } from "lucide-react";
 import { PersistentChat } from "./PersistentChat";
 
 interface SidebarProps {
   sessionId: string;
   isMentor: boolean;
-  activeTab: "chat" | "participants" | "approval";
-  onTabChange: (tab: "chat" | "participants" | "approval") => void;
+  isAdmin?: boolean;
+  activeTab: "chat" | "participants";
+  onTabChange: (tab: "chat" | "participants") => void;
   onMuteAll?: () => void;
   chatMessages: any[];
   sendChat: (msg: string) => Promise<any>;
@@ -25,6 +22,7 @@ interface SidebarProps {
 export const ConferencingSidebar: React.FC<SidebarProps> = ({
   sessionId,
   isMentor,
+  isAdmin = false,
   activeTab,
   onTabChange,
   onMuteAll,
@@ -33,13 +31,11 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
   onClose,
   isSending,
 }) => {
+  const isHost = isMentor || isAdmin;
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
-  const [pendingParticipants, setPendingParticipants] = useState<any[]>([]);
   const [unreadChat, setUnreadChat] = useState(0);
-  const [unreadApproval, setUnreadApproval] = useState(0);
   const prevMessageCountRef = useRef(chatMessages.length);
-  const prevPendingCountRef = useRef(0);
 
   // Fetch camera tracks to provide explicit trackRef to mini-tiles
   // const cameraTracks = useTracks([
@@ -67,23 +63,9 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
     prevMessageCountRef.current = chatMessages.length;
   }, [chatMessages.length, activeTab]);
 
-  // Notification tracking: new waiting room entries
-  useEffect(() => {
-    if (
-      activeTab !== "approval" &&
-      pendingParticipants.length > prevPendingCountRef.current
-    ) {
-      setUnreadApproval(
-        (c) => c + (pendingParticipants.length - prevPendingCountRef.current),
-      );
-    }
-    prevPendingCountRef.current = pendingParticipants.length;
-  }, [pendingParticipants.length, activeTab]);
-
   // Clear unread counts when tab is opened
   useEffect(() => {
     if (activeTab === "chat") setUnreadChat(0);
-    if (activeTab === "approval") setUnreadApproval(0);
   }, [activeTab]);
 
   // Memoize participant metadata to avoid 200+ JSON.parse per render
@@ -127,66 +109,10 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // 2. Approval Queue Logic (Mentor Only)
-  useEffect(() => {
-    if (!isMentor) return;
-
-    const fetchPending = async () => {
-      const { data } = await supabase
-        .from("session_participants")
-        .select(
-          `
-          *,
-          user:profiles!session_participants_user_id_fkey(full_name)
-        `,
-        )
-        .eq("session_id", sessionId)
-        .eq("status", "pending");
-      setPendingParticipants(data || []);
-    };
-
-    fetchPending();
-
-    const sub = supabase
-      .channel(`pending_parts_${sessionId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "session_participants",
-          filter: `session_id=eq.${sessionId}`,
-        },
-        fetchPending,
-      )
-      .subscribe();
-
-    return () => {
-      sub.unsubscribe();
-    };
-  }, [sessionId, isMentor]);
-
-  const handleApprove = async (userId: string) => {
-    await supabase
-      .from("session_participants")
-      .update({ status: "approved" })
-      .eq("session_id", sessionId)
-      .eq("user_id", userId);
-    setPendingParticipants((prev) => prev.filter((p) => p.user_id !== userId));
-  };
-
-  const handleReject = async (userId: string) => {
-    await supabase
-      .from("session_participants")
-      .update({ status: "rejected" })
-      .eq("session_id", sessionId)
-      .eq("user_id", userId);
-    setPendingParticipants((prev) => prev.filter((p) => p.user_id !== userId));
-  };
 
   return (
-    <div className="w-full md:w-80 bg-[#0F0F10] border-l border-white/5 flex flex-col h-full overflow-x-hidden absolute inset-0 z-40 md:relative md:z-auto">
-      <div className="flex border-b border-white/5 bg-black/20">
+    <div className="w-full md:w-80 bg-[#0F0F10] border-l border-white/5 flex flex-col h-[100dvh] md:h-full overflow-hidden fixed inset-0 z-40 md:relative md:inset-auto md:z-auto pb-[env(safe-area-inset-bottom,0px)] pt-[env(safe-area-inset-top,0px)] md:pt-0 md:pb-0">
+      <div className="flex items-center border-b border-white/5 bg-black/20 pr-[max(0.5rem,env(safe-area-inset-right,0px))]">
         <TabButton
           active={activeTab === "chat"}
           onClick={() => onTabChange("chat")}
@@ -200,34 +126,22 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
           icon={<Users className="w-4 h-4" />}
           label="Users"
         />
-        {isMentor && (
-          <TabButton
-            active={activeTab === "approval"}
-            onClick={() => onTabChange("approval")}
-            icon={<UserCheck className="w-4 h-4" />}
-            label="Wait Room"
-            badge={
-              pendingParticipants.length > 0
-                ? pendingParticipants.length
-                : undefined
-            }
-            notification={unreadApproval > 0}
-          />
-        )}
         <button
           onClick={onClose}
-          className="md:hidden flex items-center justify-center w-12 shrink-0 text-gray-400 hover:text-white transition-colors"
+          aria-label="Close sidebar"
+          className="md:hidden flex items-center justify-center w-11 h-11 shrink-0 rounded-full bg-white/10 text-white hover:bg-white/20 active:scale-95 transition-colors border border-white/10"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
+            width="18"
+            height="18"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
           >
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -279,7 +193,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                         {p.name || p.identity || "Anonymous"}
                       </span>
                     </div>
-                    {isMentor && (
+                    {isHost && (
                       <button
                         onClick={async () => {
                           const encoder = new TextEncoder();
@@ -308,7 +222,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                 <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
                   All Participants ({participants.length})
                 </h4>
-                {isMentor && onMuteAll && (
+                {isHost && onMuteAll && (
                   <button
                     onClick={onMuteAll}
                     className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-all"
@@ -345,7 +259,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                         <span className="text-sm text-gray-200 font-medium leading-tight">
                           {p.name || p.identity || "Anonymous"}
                         </span>
-                        {isMentor && !p.isLocal && p.isMicrophoneEnabled && (
+                        {isHost && !p.isLocal && p.isMicrophoneEnabled && (
                           <button
                             onClick={async () => {
                               const encoder = new TextEncoder();
@@ -372,7 +286,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                         )}
                       </div>
 
-                      {isMentor && !p.isLocal && pMetadata.handRaised && (
+                      {isHost && !p.isLocal && pMetadata.handRaised && (
                         <div className="flex items-center gap-2 mt-1 pt-1 border-t border-white/5 transition-opacity">
                           <button
                             onClick={async () => {
@@ -402,58 +316,6 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {activeTab === "approval" && isMentor && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-            {pendingParticipants.length === 0 ? (
-              <p className="text-xs text-gray-500 font-medium text-center py-10">
-                Waiting room is empty.
-              </p>
-            ) : (
-              pendingParticipants.map((part) => (
-                <div
-                  key={part.user_id}
-                  className="p-3 bg-white/5 rounded-xl flex items-center justify-between"
-                >
-                  <div>
-                    <p className="text-xs text-white font-bold">
-                      {part.user?.full_name || "Anonymous"}
-                    </p>
-                    <p className="text-[10px] text-gray-500">Wants to join</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleApprove(part.user_id)}
-                      className="p-2 bg-primary text-white rounded-lg hover:scale-105 transition-all"
-                      title="Approve"
-                    >
-                      <UserCheck className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleReject(part.user_id)}
-                      className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 hover:scale-105 transition-all"
-                      title="Reject"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

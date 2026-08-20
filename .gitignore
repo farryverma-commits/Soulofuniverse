@@ -61,3 +61,6 @@ migration.sql
 .commandcode/
 graphify-out
 egress_request.json
+infra/livekit-server-monitor.sh
+oracle-scheduler/
+supabase/migrations/
