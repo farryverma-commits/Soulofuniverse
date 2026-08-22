@@ -153,6 +153,28 @@ function MyVideoConference({
   const isHost = isMentor || isAdmin;
   const navigate = useNavigate();
   const [layout, setLayout] = useState<"grid" | "speaker">("speaker");
+  const isParticipantAdmin = useCallback((p: any) => {
+    if (!p) return false;
+    try {
+      const meta = JSON.parse(p.metadata || "{}");
+      if (meta?.role === "admin") return true;
+    } catch {}
+    const attrs: any = (p as any).attributes;
+    if (attrs) {
+      const r = attrs instanceof Map ? attrs.get("role") : attrs?.role;
+      if (r === "admin") return true;
+    }
+    return false;
+  }, []);
+  const isParticipantHost = useCallback((p: any) => {
+    if (!p) return false;
+    if (String(p.identity) === String(mentorId)) return true;
+    try {
+      const meta = JSON.parse(p.metadata || "{}");
+      if (meta?.role === "mentor") return true;
+    } catch {}
+    return false;
+  }, [mentorId]);
 
   // Dev-only logging — stripped in production builds
   const devLog = (...args: any[]) => {
@@ -809,25 +831,56 @@ function MyVideoConference({
     return () => window.removeEventListener("resize", onNarrow);
   }, []);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [endSessionError, setEndSessionError] = useState<string | null>(null);
   const doEndSession = async () => {
-    setShowEndConfirm(false);
+    if (isEndingSession) return;
+    setEndSessionError(null);
+    setIsEndingSession(true);
     navigatingRef.current = true;
     try {
+      if (!localParticipant) throw new Error("Not connected");
       const encoder = new TextEncoder();
-      await localParticipant.publishData(encoder.encode(JSON.stringify({ action: "SESSION_ENDED" })), { reliable: true });
+      await localParticipant.publishData(
+        encoder.encode(JSON.stringify({ action: "SESSION_ENDED" })),
+        { reliable: true },
+      );
       const currentMeta = JSON.parse(localParticipant.metadata || "{}");
-      await localParticipant.setMetadata(JSON.stringify({ ...currentMeta, isSessionEnded: true }));
-      setSessionStatus("ended");
+      await localParticipant.setMetadata(
+        JSON.stringify({ ...currentMeta, isSessionEnded: true }),
+      );
       const { data: authData } = await supabase.auth.getSession();
-      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authData.session?.access_token}` },
-        body: JSON.stringify({ session_id: sessionId, action: "end" }),
-      }).catch((err) => console.warn("Backend cleanup failed:", err));
-      setTimeout(() => { room.disconnect(); navigate("/", { replace: true }); }, 2000);
-    } catch (err) {
-      console.error(err);
-      room.disconnect();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authData.session?.access_token}`,
+          },
+          body: JSON.stringify({ session_id: sessionId, action: "end" }),
+        },
+      );
+      if (!res.ok) {
+        let msg = `Failed to end session (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
+      setShowEndConfirm(false);
+      setSessionStatus("ended");
+      setTimeout(() => {
+        room.disconnect();
+        navigate("/", { replace: true });
+      }, 2000);
+    } catch (err: any) {
+      console.error("[doEndSession] failed:", err);
+      navigatingRef.current = false;
+      setEndSessionError(err?.message || "Failed to end session. Please try again.");
+    } finally {
+      setIsEndingSession(false);
     }
   };
   const [unreadChat, setUnreadChat] = useState(0);
@@ -1497,8 +1550,8 @@ function MyVideoConference({
                   {mainTrack && (
                     <CustomParticipantTile
                       trackRef={mainTrack}
-                      isHostTile={String(mainTrack.participant.identity) === String(mentorId)}
-                      isAdminTile={false}
+                      isHostTile={isParticipantHost(mainTrack.participant)}
+                      isAdminTile={isParticipantAdmin(mainTrack.participant)}
                     />
                   )}
                 </div>
@@ -1531,6 +1584,8 @@ function MyVideoConference({
                       style={{ scrollbarWidth: "none" }}
                     >
                       {activeSpeakers.map((p) => {
+                        const isAdminTile = isParticipantAdmin(p);
+                        const isHostTile = isParticipantHost(p);
                         // const camTrack = cameraTracks.find(
                         //   (t) => t.participant.identity === p.identity,
                         // );
@@ -1546,9 +1601,9 @@ function MyVideoConference({
                           >
                             {
                               // camTrack ? (
-                              //   <CustomParticipantTile trackRef={camTrack} />
+                              //   <CustomParticipantTile trackRef={camTrack} isHostTile={isHostTile} isAdminTile={isAdminTile} />
                               // ) :
-                              <ParticipantAvatarTile participant={p} compact />
+                              <ParticipantAvatarTile participant={p} compact isAdminTile={isAdminTile} isHostTile={isHostTile} />
                             }
                           </div>
                         );
@@ -2009,9 +2064,32 @@ function MyVideoConference({
               <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
                 <h3 className="text-sm font-bold text-white mb-1">End session?</h3>
                 <p className="text-xs text-white/60 mb-5">Everyone will be disconnected. This cannot be undone.</p>
+                {endSessionError && (
+                  <div className="mb-4 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-300">
+                    {endSessionError}
+                  </div>
+                )}
                 <div className="flex gap-3">
-                  <button onClick={() => setShowEndConfirm(false)} className="flex-1 py-2.5 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/15">Stay</button>
-                  <button onClick={doEndSession} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-xs font-black hover:bg-red-600">End Session</button>
+                  <button
+                    onClick={() => {
+                      if (isEndingSession) return;
+                      setEndSessionError(null);
+                      setShowEndConfirm(false);
+                      navigatingRef.current = false;
+                    }}
+                    disabled={isEndingSession}
+                    className="flex-1 py-2.5 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/15 disabled:opacity-50"
+                  >
+                    Stay
+                  </button>
+                  <button
+                    onClick={doEndSession}
+                    disabled={isEndingSession}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-xs font-black hover:bg-red-600 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {isEndingSession && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {isEndingSession ? "Ending…" : endSessionError ? "Retry" : "End Session"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2138,10 +2216,14 @@ function ParticipantGridTile({
   participant,
   trackRef,
   isMobile,
+  isAdminTile,
+  isHostTile,
 }: {
   participant: any;
   trackRef?: any;
   isMobile: boolean;
+  isAdminTile?: boolean;
+  isHostTile?: boolean;
 }) {
   const w = isMobile ? 280 : 360;
   const h = Math.round((w * 9) / 16);
@@ -2151,7 +2233,7 @@ function ParticipantGridTile({
       style={{ width: w, height: h, contain: "layout paint" }}
     >
       {trackRef ? (
-        <CustomParticipantTile trackRef={trackRef} />
+        <CustomParticipantTile trackRef={trackRef} isAdminTile={isAdminTile} isHostTile={isHostTile} />
       ) : (
         <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center gap-2 p-3">
           <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
@@ -2164,6 +2246,16 @@ function ParticipantGridTile({
             <span className="text-[11px] font-bold text-white/60 truncate max-w-[120px]">
               {participant.name || participant.identity}
             </span>
+            {isAdminTile && (
+              <span className="shrink-0 text-[7px] font-black tracking-widest uppercase px-1 py-0.5 rounded bg-[#7B5EA8]/30 border border-[#7B5EA8]/40 text-[#C9B6FF]">
+                Admin
+              </span>
+            )}
+            {isHostTile && !isAdminTile && (
+              <span className="shrink-0 text-[7px] font-black tracking-widest uppercase px-1 py-0.5 rounded bg-primary/20 border border-primary/30 text-primary">
+                Host
+              </span>
+            )}
           </div>
           {participant.isSpeaking && (
             <div className="text-[9px] font-bold text-green-400/70 uppercase tracking-widest">
@@ -2179,9 +2271,13 @@ function ParticipantGridTile({
 function ParticipantAvatarTile({
   participant,
   compact,
+  isAdminTile,
+  isHostTile,
 }: {
   participant: any;
   compact?: boolean;
+  isAdminTile?: boolean;
+  isHostTile?: boolean;
 }) {
   return (
     <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center p-1">
@@ -2197,6 +2293,16 @@ function ParticipantAvatarTile({
       <span className="text-[8px] font-bold text-white/40 truncate max-w-[100px] mt-0.5 text-center leading-tight">
         {participant.name || participant.identity}
       </span>
+      {isAdminTile && (
+        <span className="text-[6px] font-black tracking-widest uppercase px-1 py-0 rounded bg-[#7B5EA8]/30 border border-[#7B5EA8]/40 text-[#C9B6FF] mt-0.5">
+          Admin
+        </span>
+      )}
+      {!isAdminTile && isHostTile && (
+        <span className="text-[6px] font-black tracking-widest uppercase px-1 py-0 rounded bg-primary/20 border border-primary/30 text-primary mt-0.5">
+          Host
+        </span>
+      )}
       <div className="flex items-center gap-1 mt-0.5">
         <div
           className={`w-1 h-1 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}

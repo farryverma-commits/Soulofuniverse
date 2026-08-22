@@ -157,6 +157,7 @@ Deno.serve(async (req: Request) => {
       identity: user.id,
       name: profile.full_name ?? user.email,
       ttl: "6h",
+      attributes: { role: profile.role },
     });
 
     at.addGrant({

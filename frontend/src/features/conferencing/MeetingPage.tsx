@@ -66,15 +66,16 @@ export const MeetingPage: React.FC = () => {
           setErrorMsg("Meeting session not found.");
           return;
         }
-        if (session.status !== "live") {
-          setStatus("not_started");
-          return;
-        }
 
         const isAdminVal = role === "admin";
         setIsMentor(session.mentor_id === user.id);
         setIsAdmin(isAdminVal);
         setMentorId(session.mentor_id);
+
+        if (session.status !== "live") {
+          setStatus("not_started");
+          return;
+        }
 
         const response = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-get-token`,

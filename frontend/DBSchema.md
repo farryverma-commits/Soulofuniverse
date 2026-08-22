@@ -156,7 +156,7 @@ Stores the scheduled meetings created by mentors.
 
 ### 6. `session_participants`
 
-Handles the "Waiting Room" and tracks who attended.
+Tracks session attendance and the participant roster.
 
 | Column       | Type          | Description                                |
 | :----------- | :------------ | :----------------------------------------- |
@@ -164,12 +164,12 @@ Handles the "Waiting Room" and tracks who attended.
 | `session_id` | `uuid` (FK)   | References `group_sessions.id`.            |
 | `user_id`    | `uuid` (FK)   | References `profiles.id`.                  |
 | `status`     | `text`        | `waiting`, `approved`, `joined`, `denied`. |
-| `joined_at`  | `timestamptz` | When the user was admitted/joined.         |
+| `joined_at`  | `timestamptz` | When the user joined.                      |
 
 **RLS Rules:**
 
-- `Users manage own`: Users can `SELECT`/`INSERT`/`UPDATE`/`DELETE` their own records (to join/request access) — `auth.uid() = user_id`.
-- `Mentors manage own sessions`: Mentors can `ALL` on rows where `group_sessions.mentor_id = auth.uid()` (admit/deny).
+- `Users manage own`: Users can `SELECT`/`INSERT`/`UPDATE`/`DELETE` their own attendance records — `auth.uid() = user_id`.
+- `Mentors manage own sessions`: Mentors can `ALL` on rows where `group_sessions.mentor_id = auth.uid()` (participant management for sessions they host).
 - `Admins manage (co-host)`: Approved admins (`auth.jwt() #>> '{app_metadata,user_role}' = 'admin' AND user_status = 'approved'`) can `ALL` on `session_participants` — co-host moderation (Mute All / Mute user / Lower Hand and participant list). Synced via `sync_profile_to_auth_metadata()` trigger; no `EXISTS (select from profiles)` recursion. Added in `20260819000001_admin_cohost_session_participants.sql`; `group_sessions` SELECT also tightened to `user_status='approved'` JWT check in the same migration.
 
 ---
