@@ -4,7 +4,8 @@ import { useSelector } from "react-redux";
 import type { RootState } from "../../store";
 import { supabase } from "../../services/supabaseClient";
 import { MeetingView } from "../../components/conferencing/MeetingView";
-import { ShieldAlert, Lock, Video } from "lucide-react";
+import { DeviceCheckPanel } from "./device-check/DeviceCheckPanel";
+import { ShieldAlert, Lock } from "lucide-react";
 import { OrbitalLoader } from "../../components/OrbitalLoader";
 
 export const MeetingPage: React.FC = () => {
@@ -246,46 +247,21 @@ export const MeetingPage: React.FC = () => {
     );
   }
 
-  // if (status === 'permissions') {
-  //   const isSecure = window.isSecureContext
-  //   const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-
-  //   return (
-  //     <div className="flex flex-col items-center justify-center min-h-screen bg-canvas px-4 text-center">
-  //       <div className="w-14 h-14 bg-primary-light rounded-lg flex items-center justify-center mb-4">
-  //         <Video size={24} className="text-primary" />
-  //       </div>
-  //       <h2 className="text-xl font-bold text-text mb-1">Ready to join?</h2>
-  //       <p className="text-text-secondary text-sm max-w-sm mb-6">
-  //         {!isSecure
-  //           ? "You are using an insecure connection (HTTP). Camera/mic access requires HTTPS."
-  //           : "Soul of Universe needs access to your camera and microphone for the session."}
-  //       </p>
-  //       <div className="flex flex-col gap-2 w-full max-w-xs">
-  //         <button
-  //           onClick={async () => {
-  //             if (!hasMediaDevices) { setStatus('error'); setErrorMsg('Your browser does not support camera/mic access.'); return }
-  //             try {
-  //               await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-  //               setStatus('ready')
-  //             } catch (err: any) {
-  //               if (isMentor) { setStatus('error'); setErrorMsg('Camera and microphone access is required for hosts.') }
-  //               else setStatus('ready')
-  //             }
-  //           }}
-  //           className="btn-primary py-3 text-sm"
-  //         >
-  //           Allow permissions & join
-  //         </button>
-  //         {!isMentor && (
-  //           <button onClick={() => setStatus('ready')} className="btn-secondary py-3 text-sm">
-  //             Join as listener
-  //           </button>
-  //         )}
-  //       </div>
-  //     </div>
-  //   )
-  // }
+  if (status === "permissions") {
+    // Pre-join green room: verify mic/camera before mounting MeetingView.
+    // The panel's unmount cleanup stops its probe stream so LiveKit opens
+    // fresh tracks. Hosts (mentor + admin co-host) must grant BOTH mic and
+    // camera — mentors publish at connect and co-hosts toggle media live;
+    // students are warned but never blocked.
+    return (
+      <DeviceCheckPanel
+        mode="pre-join"
+        requireMedia={isHost}
+        onJoin={() => setStatus("ready")}
+        onBack={() => navigate("/")}
+      />
+    );
+  }
 
   if (status === "error") {
     return (
