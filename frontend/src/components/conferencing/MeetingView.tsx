@@ -1056,6 +1056,42 @@ function MyVideoConference({
     };
   }, [localParticipant, mentorId, sessionStatus, room, navigate]);
 
+  // Instant end-signal — the 3s poll above is only the slow backup. The ending
+  // host writes isSessionEnded in their metadata BEFORE calling the edge
+  // function that tears the room down, so reacting to the metadata event lands
+  // students on the Session Ended overlay immediately. Without this, the
+  // room-deletion window (quality → Lost, participant removal) flashes the
+  // "Host Reconnecting" tile for the seconds it takes the poll to catch up.
+  // Matches ANY remote host's flag (mentor or admin co-host), never self.
+  useEffect(() => {
+    if (!room || !localParticipant) return;
+    const onMetadataChanged = (
+      _prev: string | undefined,
+      participant: any,
+    ) => {
+      if (!participant || sessionStatus === "ended" || navigatingRef.current)
+        return;
+      if (participant.identity === localParticipant.identity) return;
+      try {
+        const meta = JSON.parse(participant.metadata || "{}");
+        if (!meta.isSessionEnded) return;
+        devLog("Remote host metadata isSessionEnded — ending session");
+        setSessionStatus("ended");
+        navigatingRef.current = true;
+        endPollTimerRef.current = setTimeout(() => {
+          room.disconnect();
+          navigate("/", { replace: true });
+        }, 3000);
+      } catch {
+        /* malformed metadata — the 3s poll remains the backup */
+      }
+    };
+    room.on(RoomEvent.ParticipantMetadataChanged, onMetadataChanged);
+    return () => {
+      room.off(RoomEvent.ParticipantMetadataChanged, onMetadataChanged);
+    };
+  }, [room, localParticipant, sessionStatus, navigate]);
+
   // Clear any stale isSessionEnded flag on the local participant when (re)joining.
   // LiveKit persists participant metadata by identity, so a flag left over from a
   // previous End Session (or a reused session/identity) would otherwise linger and
@@ -1577,43 +1613,35 @@ function MyVideoConference({
                       <Loader2 className="w-4 h-4 animate-spin mt-6 text-white/30" />
                     </div>
                   )}
+                {/* Now-speaking pill — minimal: speaker name + animated bars.
+                    Sits bottom-right, mirroring the host name label at
+                    bottom-left; never covers the video and ignores taps. */}
                 {activeSpeakers.length > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 pt-16 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-                    <div
-                      className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden"
-                      style={{ scrollbarWidth: "none" }}
-                    >
-                      {activeSpeakers.map((p) => {
-                        const isAdminTile = isParticipantAdmin(p);
-                        const isHostTile = isParticipantHost(p);
-                        // const camTrack = cameraTracks.find(
-                        //   (t) => t.participant.identity === p.identity,
-                        // );
-                        return (
-                          <div
-                            key={p.identity}
-                            className="shrink-0 rounded-xl overflow-hidden border border-white/15 bg-black/80 shadow-lg"
-                            style={{
-                              width: 148,
-                              height: 92,
-                              contain: "layout paint",
-                            }}
-                          >
-                            {
-                              // camTrack ? (
-                              //   <CustomParticipantTile trackRef={camTrack} isHostTile={isHostTile} isAdminTile={isAdminTile} />
-                              // ) :
-                              <ParticipantAvatarTile participant={p} compact isAdminTile={isAdminTile} isHostTile={isHostTile} />
-                            }
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {/* {listenerCount > 0 && (
-                      <div className="absolute top-1 right-3 text-[9px] font-bold text-white/40 bg-black/50 px-2 py-0.5 rounded-full">
-                        {listenerCount} listening
+                  <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-col items-end gap-1.5">
+                    {activeSpeakers.slice(0, 3).map((p) => (
+                      <div
+                        key={p.identity}
+                        className="flex max-w-[45vw] items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-2.5 pr-3 shadow-lg backdrop-blur-md animate-fade-in sm:max-w-[240px]"
+                        style={{ contain: "layout paint" }}
+                      >
+                        <span
+                          className="speaking-bars shrink-0"
+                          aria-hidden="true"
+                        >
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        <span className="truncate text-[10px] font-bold text-white sm:text-xs">
+                          {p.name || p.identity}
+                        </span>
                       </div>
-                    )} */}
+                    ))}
+                    {activeSpeakers.length > 3 && (
+                      <span className="pr-1 text-[10px] font-semibold text-white/50">
+                        +{activeSpeakers.length - 3} speaking
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -2264,53 +2292,6 @@ function ParticipantGridTile({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function ParticipantAvatarTile({
-  participant,
-  compact,
-  isAdminTile,
-  isHostTile,
-}: {
-  participant: any;
-  compact?: boolean;
-  isAdminTile?: boolean;
-  isHostTile?: boolean;
-}) {
-  return (
-    <div className="w-full h-full bg-[#14141c] flex flex-col items-center justify-center p-1">
-      <div
-        className={`rounded-full bg-white/5 border border-white/10 flex items-center justify-center ${compact ? "w-6 h-6" : "w-8 h-8"}`}
-      >
-        <User
-          className={
-            compact ? "w-3.5 h-3.5 text-white/30" : "w-4 h-4 text-white/30"
-          }
-        />
-      </div>
-      <span className="text-[8px] font-bold text-white/40 truncate max-w-[100px] mt-0.5 text-center leading-tight">
-        {participant.name || participant.identity}
-      </span>
-      {isAdminTile && (
-        <span className="text-[6px] font-black tracking-widest uppercase px-1 py-0 rounded bg-[#7B5EA8]/30 border border-[#7B5EA8]/40 text-[#C9B6FF] mt-0.5">
-          Admin
-        </span>
-      )}
-      {!isAdminTile && isHostTile && (
-        <span className="text-[6px] font-black tracking-widest uppercase px-1 py-0 rounded bg-primary/20 border border-primary/30 text-primary mt-0.5">
-          Host
-        </span>
-      )}
-      <div className="flex items-center gap-1 mt-0.5">
-        <div
-          className={`w-1 h-1 rounded-full ${participant.isMicrophoneEnabled ? "bg-green-500" : "bg-red-500"}`}
-        />
-        {participant.isSpeaking && (
-          <span className="text-[7px] font-bold text-green-400">SPK</span>
-        )}
-      </div>
     </div>
   );
 }
