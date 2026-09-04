@@ -49,7 +49,6 @@ import {
   Maximize,
   Minimize,
   CircleDot,
-  MoreVertical,
   PhoneOff,
   WifiOff,
   Wifi,
@@ -823,13 +822,6 @@ function MyVideoConference({
   // );
   // const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 375);
-  useEffect(() => {
-    const onNarrow = () => setIsNarrow(window.innerWidth < 375);
-    window.addEventListener("resize", onNarrow);
-    return () => window.removeEventListener("resize", onNarrow);
-  }, []);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [endSessionError, setEndSessionError] = useState<string | null>(null);
@@ -1656,7 +1648,7 @@ function MyVideoConference({
                   <Loader2 className="w-3 h-3 animate-spin" /> Reconnecting
                 </span>
               )}
-              {isHost && !isNarrow && (
+              {isHost && (
                 <span className="snap-start shrink-0">
                   <MediaControl
                     source={Track.Source.Camera}
@@ -1674,29 +1666,45 @@ function MyVideoConference({
                   offIcon={<MicOff className="w-5 h-5" />}
                 />
               </span>
-              <span className="snap-start shrink-0">
-                <ControlActionButton
-                  onClick={toggleHand}
-                  aria-label={isHandRaised ? "Lower hand" : "Raise hand"}
-                  icon={
-                    <Hand
-                      className={`w-5 h-5 ${isHandRaised ? "text-yellow-400 fill-current" : "text-white"}`}
-                    />
-                  }
-                  isActive={isHandRaised}
-                  minimal={true}
-                />
-              </span>
+              {!isHost && (
+                <span className="snap-start shrink-0">
+                  <ControlActionButton
+                    onClick={toggleHand}
+                    aria-label={isHandRaised ? "Lower hand" : "Raise hand"}
+                    icon={
+                      <Hand
+                        className={`w-5 h-5 ${isHandRaised ? "text-yellow-400 fill-current" : "text-white"}`}
+                      />
+                    }
+                    isActive={isHandRaised}
+                    minimal={true}
+                  />
+                </span>
+              )}
+              {isHost && (
+                <span className="snap-start shrink-0">
+                  <ControlActionButton
+                    onClick={handleMuteAll}
+                    aria-label="Mute all participants"
+                    icon={<MicOff className="w-5 h-5 text-red-400" />}
+                    minimal={true}
+                  />
+                </span>
+              )}
 
               <div className="relative snap-start shrink-0">
                 <ControlActionButton
                   onClick={() => {
-                    setSidebarTab("chat");
-                    setShowSidebar(true);
-                    setShowMoreMenu(false);
+                    if (showSidebar && sidebarTab === "chat") {
+                      setShowSidebar(false);
+                    } else {
+                      setSidebarTab("chat");
+                      setShowSidebar(true);
+                    }
                     setUnreadChat(0);
                   }}
-                  aria-label="Open chat"
+                  aria-label="Chat"
+                  isActive={showSidebar && sidebarTab === "chat"}
                   icon={<MessageSquare className="w-5 h-5" />}
                   minimal={true}
                 />
@@ -1707,175 +1715,43 @@ function MyVideoConference({
                 )}
               </div>
 
-              <div className="relative snap-start shrink-0">
-                <button
-                  onClick={() => setShowMoreMenu(!showMoreMenu)}
-                  aria-label="More options"
-                  className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-95 border ${showMoreMenu ? "bg-white text-gray-900 border-white" : "bg-white/10 hover:bg-white/20 text-white border-white/10"}`}
-                >
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-
-                {showMoreMenu && (
-                  <div className="absolute bottom-full right-0 mb-6 w-[min(72vw,16rem)] max-w-[72vw] bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300">
-                    <div className="px-5 py-4 border-b border-white/5 bg-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
-                        Session Controls
-                      </span>
-                    </div>
-                    <div className="py-2">
-                      {/* <button
-                        onClick={() => {
-                          setSidebarTab("chat");
-                          setShowSidebar(true);
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-5 py-4 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
-                          <MessageSquare className="w-4 h-4 text-blue-400" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-200">
-                            Chat
-                          </span>
-                          { <span className="text-[10px] text-gray-500">
-                            Send messages to all
-                          </span> }
-                        </div>
-                      </button> */}
-                      <button
-                        onClick={() => {
-                          setSidebarTab("participants");
-                          setShowSidebar(true);
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-5 py-4 text-left flex items-center justify-between hover:bg-white/5 transition-colors group"
-                      >
-                        <span className="flex items-center gap-4">
-                          <span className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
-                            <Users className="w-4 h-4 text-purple-400" />
-                          </span>
-                          <span className="text-sm font-bold text-gray-200">Participants</span>
-                        </span>
-                        <span className="text-xs font-black text-gray-500">{allParticipants.length}</span>
-                      </button>
-                      {isHost && (
-                        <button
-                          onClick={async () => { await handleMuteAll(); setShowMoreMenu(false); }}
-                          className="w-full px-5 py-3.5 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
-                        >
-                          <span className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                            <MicOff className="w-4 h-4 text-red-400" />
-                          </span>
-                          <span className="text-sm font-bold text-gray-200">Mute All</span>
-                        </button>
-                      )}
-                      {isNarrow && isHost && (
-                        <button
-                          onClick={async () => {
-                            const lp: any = localParticipant;
-                            try { await lp.setCameraEnabled(!lp.isCameraEnabled); } catch {}
-                            setShowMoreMenu(false);
-                          }}
-                          className="w-full px-5 py-3.5 text-left flex items-center gap-4 hover:bg-white/5 transition-colors"
-                        >
-                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${localParticipant?.isCameraEnabled ? "bg-green-500/20" : "bg-white/5"}`}>
-                            {localParticipant?.isCameraEnabled ? <Video className="w-4 h-4 text-green-400" /> : <VideoOff className="w-4 h-4 text-gray-400" />}
-                          </span>
-                          <span className="flex flex-col text-left">
-                            <span className="text-sm font-bold text-gray-200">Camera</span>
-                            <span className="text-[10px] text-gray-500">{localParticipant?.isCameraEnabled ? "On — tap to turn off" : "Off — tap to turn on"}</span>
-                          </span>
-                        </button>
-                      )}
-                      {/* <button
-                        onClick={() => {
-                          setLayout(layout === "grid" ? "speaker" : "grid");
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-5 py-4 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center group-hover:bg-orange-500/20 transition-colors">
-                          {layout === "grid" ? (
-                            <User className="w-4 h-4 text-orange-400" />
-                          ) : (
-                            <LayoutGrid className="w-4 h-4 text-orange-400" />
-                          )}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-200">
-                            {layout === "grid" ? "Speaker View" : "Grid View"}
-                          </span>                       
-                        </div>
-                      </button> */}
-
-                      {isHost && (
-                        <>
-                          <div className="mx-5 my-2 border-t border-white/5" />
-                          <button
-                            onClick={async () => {
-                              const isEnabled =
-                                localParticipant?.isScreenShareEnabled;
-                              await localParticipant?.setScreenShareEnabled(
-                                !isEnabled,
-                              );
-                              setShowMoreMenu(false);
-                            }}
-                            className="w-full px-5 py-4 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
-                          >
-                            <div
-                              className={`w-8 h-8 rounded-lg ${localParticipant?.isScreenShareEnabled ? "bg-green-500/20" : "bg-gray-500/10"} flex items-center justify-center group-hover:opacity-80 transition-all`}
-                            >
-                              <MonitorUp
-                                className={`w-4 h-4 ${localParticipant?.isScreenShareEnabled ? "text-green-400" : "text-gray-400"}`}
-                              />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-gray-200">
-                                Share Screen
-                              </span>
-                              <span className="text-[10px] text-gray-500">
-                                {localParticipant?.isScreenShareEnabled
-                                  ? "Currently presenting"
-                                  : "Start presenting"}
-                              </span>
-                            </div>
-                          </button>
-                          {/* 
-                          Hiding recording button now
-                          <button
-                            onClick={() => {
-                              handleToggleRecording();
-                              setShowMoreMenu(false);
-                            }}
-                            className="w-full px-5 py-4 text-left flex items-center gap-4 hover:bg-white/5 transition-colors group"
-                          >
-                            <div
-                              className={`w-8 h-8 rounded-lg ${isRecording ? "bg-red-500/20" : "bg-gray-500/10"} flex items-center justify-center group-hover:opacity-80 transition-all`}
-                            >
-                              <CircleDot
-                                className={`w-4 h-4 ${isRecording ? "text-red-400 animate-pulse" : "text-gray-400"}`}
-                              />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-gray-200">
-                                Record Session{" "}
-                                {isRecording ? recordingDuration : ""}
-                              </span>
-                              <span className="text-[10px] text-gray-500">
-                                {isRecording
-                                  ? "Stop cloud recording"
-                                  : "Save this meeting"}
-                              </span>
-                            </div>
-                          </button> */}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
+              <div className="snap-start shrink-0">
+                <ControlActionButton
+                  onClick={() => {
+                    if (showSidebar && sidebarTab === "participants") {
+                      setShowSidebar(false);
+                    } else {
+                      setSidebarTab("participants");
+                      setShowSidebar(true);
+                    }
+                  }}
+                  aria-label="Participants"
+                  isActive={showSidebar && sidebarTab === "participants"}
+                  icon={<Users className="w-5 h-5" />}
+                  minimal={true}
+                />
               </div>
+
+              {isHost && (
+                <span className="snap-start shrink-0">
+                  <ControlActionButton
+                    onClick={async () => {
+                      const isEnabled =
+                        localParticipant?.isScreenShareEnabled;
+                      await localParticipant?.setScreenShareEnabled(!isEnabled);
+                    }}
+                    aria-label="Share screen"
+                    isActive={localParticipant?.isScreenShareEnabled}
+                    activeColor="text-green-400"
+                    icon={
+                      <MonitorUp
+                        className={`w-5 h-5 ${localParticipant?.isScreenShareEnabled ? "text-green-400" : "text-white"}`}
+                      />
+                    }
+                    minimal={true}
+                  />
+                </span>
+              )}
 
               <div className="w-[1px] h-6 bg-white/10 mx-1 shrink-0" />
 

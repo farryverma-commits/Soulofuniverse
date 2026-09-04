@@ -5,7 +5,7 @@ import type { RootState } from "../../store";
 import { supabase } from "../../services/supabaseClient";
 import { MeetingView } from "../../components/conferencing/MeetingView";
 import { DeviceCheckPanel } from "./device-check/DeviceCheckPanel";
-import { ShieldAlert, Lock } from "lucide-react";
+import { ShieldAlert, Lock, AlertTriangle } from "lucide-react";
 import { OrbitalLoader } from "../../components/OrbitalLoader";
 
 export const MeetingPage: React.FC = () => {
@@ -23,6 +23,7 @@ export const MeetingPage: React.FC = () => {
   >("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   // Mirrors `token` so the realtime handlers (which close over the first-render
   // value) can check "already joined" without capturing a stale null.
   const hasTokenRef = useRef(false);
@@ -197,12 +198,22 @@ export const MeetingPage: React.FC = () => {
               : "You are the host. Click below to go live and allow participants to join."
             : "The host hasn't started this meeting yet. Please wait or check back later."}
         </p>
+        {startError && (
+          <div className="flex gap-3 items-start max-w-sm mt-5 rounded-xl border border-warning/20 bg-warning-light px-4 py-3 text-left animate-fade-in">
+            <AlertTriangle
+              size={16}
+              className="mt-0.5 shrink-0 text-warning"
+            />
+            <p className="text-xs font-bold text-warning">{startError}</p>
+          </div>
+        )}
         <div className="flex gap-3 mt-6">
           {isHost && (
             <button
               disabled={isStarting}
               onClick={async () => {
                 setIsStarting(true);
+                setStartError(null);
                 const {
                   data: { session },
                 } = await supabase.auth.getSession();
@@ -220,12 +231,18 @@ export const MeetingPage: React.FC = () => {
                     }),
                   },
                 );
-                if (response.ok) window.location.reload();
-                else {
-                  const err = await response.json();
-                  alert(`Error: ${err.error}`);
-                  setIsStarting(false);
+                if (response.ok) {
+                  window.location.reload();
+                  return;
                 }
+                const err = await response.json().catch(() => ({}));
+                setStartError(
+                  err?.error === "VC_SERVER_NOT_READY"
+                    ? "VC Server is not ready yet. Please wait."
+                    : err?.error ||
+                        "Something went wrong. Please try again.",
+                );
+                setIsStarting(false);
               }}
               className="btn-primary text-sm"
             >

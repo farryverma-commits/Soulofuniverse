@@ -74,8 +74,15 @@ export const AdminDashboardPage: React.FC = () => {
       .in("status", ["scheduled", "live"])
       .order("scheduled_start_time", { ascending: true })
       .limit(10);
-    setGroupSessions(data || []);
     setSessionsLoading(false);
+    // Live sessions float to the top — join-now actions come first for the admin.
+    const sorted = (data || []).sort(
+      (a: any, b: any) =>
+        Number(b.status === "live") - Number(a.status === "live") ||
+        new Date(a.scheduled_start_time).getTime() -
+          new Date(b.scheduled_start_time).getTime(),
+    );
+    setGroupSessions(sorted);
   };
 
   return (
@@ -92,7 +99,7 @@ export const AdminDashboardPage: React.FC = () => {
             Monitoring the pulse of Soul of Universe.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <CreateMentor />
           <button className="btn-secondary text-xs py-2">
             <Settings size={14} /> Settings
@@ -134,13 +141,8 @@ export const AdminDashboardPage: React.FC = () => {
         />
       </div>
 
-      {/* Pending Approvals Section */}
-      <div className="card card-glow p-6">
-        <UserApproval />
-      </div>
-
       {/* Group Sessions — admin can monitor and join any session */}
-      <div className="card card-glow p-6">
+      <div className="card card-glow p-4 sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-text">Group Sessions</h2>
           {!sessionsLoading && (
@@ -202,6 +204,11 @@ export const AdminDashboardPage: React.FC = () => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Pending Approvals Section */}
+      <div className="card card-glow p-4 sm:p-6">
+        <UserApproval />
       </div>
     </div>
   );

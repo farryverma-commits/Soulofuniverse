@@ -243,6 +243,37 @@ Deno.serve(async (req: Request) => {
     const recordingBaseUrl = Deno.env.get("RECORDING_BASE_URL") ?? "";
 
     if (action === "start") {
+      // VC server readiness gate — never mark a session live if LiveKit is
+      // unreachable. Env-unset deployments skip the gate (same convention as
+      // the room-deletion gating in "end").
+      if (livekitUrl && livekitApiKey && livekitApiSecret) {
+        try {
+          const roomService = new RoomServiceClient(
+            livekitUrl,
+            livekitApiKey,
+            livekitApiSecret,
+          );
+          await Promise.race([
+            roomService.listRooms(),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("VC readiness check timed out")),
+                5000,
+              ),
+            ),
+          ]);
+        } catch (err) {
+          console.error("VC server not ready for session start:", err);
+          return new Response(
+            JSON.stringify({ error: "VC_SERVER_NOT_READY" }),
+            {
+              status: 503,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+      }
+
       await supabaseAdmin
         .from("group_sessions")
         .update({ status: "live" })
