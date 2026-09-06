@@ -10,11 +10,19 @@ import "videojs-hls-quality-selector";
 interface VideoPlayerProps {
   options: any;
   onReady?: (player: any) => void;
+  resumeAt?: number;
+  onProgress?: (info: {
+    currentTime: number;
+    duration: number;
+    ended: boolean;
+  }) => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   options,
   onReady,
+  resumeAt,
+  onProgress,
 }) => {
   const videoRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
@@ -24,6 +32,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     null,
   );
   const cleanupTapRef = useRef<(() => void) | null>(null);
+  const resumeAtRef = useRef<number | undefined>(resumeAt);
+  const onProgressRef = useRef(onProgress);
+  const autoSeekedRef = useRef(false);
+  const lastEmitRef = useRef(0);
+
+  useEffect(() => {
+    resumeAtRef.current = resumeAt;
+  }, [resumeAt]);
+
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
+
+  // Reads the live player state through refs so listeners registered once in
+  // the ready callback always report the latest props.
+  const emitProgress = (ended: boolean) => {
+    const player = playerRef.current;
+    if (!player || player.isDisposed()) return;
+    const currentTime = player.currentTime();
+    if (typeof currentTime !== "number" || !Number.isFinite(currentTime)) return;
+    const rawDuration = player.duration();
+    const duration =
+      typeof rawDuration === "number" && Number.isFinite(rawDuration)
+        ? rawDuration
+        : 0;
+    onProgressRef.current?.({ currentTime, duration, ended });
+  };
 
   const [seekIndicator, setSeekIndicator] = useState<
     "forward" | "backward" | null
@@ -165,6 +200,50 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             playerEl.removeEventListener("keydown", handleKeyDown);
           };
 
+          // Resume where the user last left off, once per loaded source
+          playerRef.current.on("loadedmetadata", () => {
+            const p = playerRef.current;
+            if (!p || autoSeekedRef.current) return;
+            autoSeekedRef.current = true;
+
+            const resume = resumeAtRef.current;
+            if (!resume || resume < 5) return;
+
+            const dur = p.duration();
+            if (
+              typeof dur === "number" &&
+              Number.isFinite(dur) &&
+              dur > 0 &&
+              dur - resume < 10
+            ) {
+              return;
+            }
+
+            p.currentTime(resume);
+          });
+
+          playerRef.current.on("timeupdate", () => {
+            const now = Date.now();
+            if (now - lastEmitRef.current < 5000) return;
+            lastEmitRef.current = now;
+            emitProgress(false);
+          });
+
+          playerRef.current.on("seeked", () => {
+            lastEmitRef.current = Date.now();
+            emitProgress(false);
+          });
+
+          playerRef.current.on("pause", () => {
+            lastEmitRef.current = Date.now();
+            emitProgress(false);
+          });
+
+          playerRef.current.on("ended", () => {
+            lastEmitRef.current = Date.now();
+            emitProgress(true);
+          });
+
           onReady && onReady(playerRef.current);
         },
       ));
@@ -177,6 +256,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       if (newSrc && currentSrc !== newSrc) {
         player.src(options.sources);
+        autoSeekedRef.current = false;
       }
 
       if (options.autoplay !== undefined) {
@@ -194,6 +274,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (seekIndicatorTimeoutRef.current)
         clearTimeout(seekIndicatorTimeoutRef.current);
       if (player && !player.isDisposed()) {
+        // Save the final position before the player is torn down
+        try {
+          const t = player.currentTime();
+          if (typeof t === "number" && Number.isFinite(t) && t > 0) {
+            onProgressRef.current?.({
+              currentTime: t,
+              duration: player.duration() || 0,
+              ended: !!player.ended(),
+            });
+          }
+        } catch {
+          // player already torn down — nothing left to save
+        }
         player.dispose();
         playerRef.current = null;
       }

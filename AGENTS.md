@@ -86,6 +86,7 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Mentor Scheduler | Built | Recurring weekly availability slots |
 | Booking System | Built | 1-on-1 appointments between students and mentors |
 | Video Library | Built | HLS playback via Video.js with quality selector |
+| Watch Progress (Continue Watching) | Built | Netflix-style last-watched hero + per-video progress bars; resumes playback via `video_watch_progress` table |
 | Conferencing | Built | LiveKit rooms, host auto-rejoin, mobile audio interruption recovery, Lost-quality host-reconnecting fallback, disconnect-reason-based recovery branching, admin co-host (mirrors mentor controls, Admin badge, join-muted) |
 | Device Check (Pre-join) | Built | Standalone mic/camera permission + live mic-level check at `/device-check`; pre-join green room gates every meeting join — hosts (mentor + admin co-host) blocked until both granted, students warned but never blocked |
 | Admin Dashboard | In Progress | Stats, logs, infrastructure health, user approval management |
