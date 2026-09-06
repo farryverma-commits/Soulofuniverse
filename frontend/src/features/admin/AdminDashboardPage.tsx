@@ -68,21 +68,25 @@ export const AdminDashboardPage: React.FC = () => {
 
   const fetchGroupSessions = async () => {
     setSessionsLoading(true);
-    const { data } = await supabase
-      .from("group_sessions")
-      .select(`*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`)
-      .in("status", ["scheduled", "live"])
-      .order("scheduled_start_time", { ascending: true })
-      .limit(10);
+    const sessionSelect = `*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`;
+    // Live sessions are fetched separately so they can never be cut off by
+    // the time-ordered limit — older (often stale) scheduled rows must not
+    // push a live session out of the admin's Join list.
+    const [{ data: live }, { data: upcoming }] = await Promise.all([
+      supabase
+        .from("group_sessions")
+        .select(sessionSelect)
+        .eq("status", "live")
+        .order("scheduled_start_time", { ascending: true }),
+      supabase
+        .from("group_sessions")
+        .select(sessionSelect)
+        .eq("status", "scheduled")
+        .order("scheduled_start_time", { ascending: true })
+        .limit(10),
+    ]);
     setSessionsLoading(false);
-    // Live sessions float to the top — join-now actions come first for the admin.
-    const sorted = (data || []).sort(
-      (a: any, b: any) =>
-        Number(b.status === "live") - Number(a.status === "live") ||
-        new Date(a.scheduled_start_time).getTime() -
-          new Date(b.scheduled_start_time).getTime(),
-    );
-    setGroupSessions(sorted);
+    setGroupSessions([...(live ?? []), ...(upcoming ?? [])].slice(0, 10));
   };
 
   return (

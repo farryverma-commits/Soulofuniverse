@@ -359,7 +359,11 @@ export const VideoLibraryPage: React.FC = () => {
           <div className="w-full max-w-5xl aspect-video bg-[#060610] rounded-xl overflow-hidden shadow-2xl relative mt-12 md:mt-0 flex-shrink-0 border border-white/[0.04]">
             {selectedVideo.master_url ? (
               <VideoPlayer
-                resumeAt={progressMap[selectedVideo.id]?.positionSecs}
+                resumeAt={
+                  progressMap[selectedVideo.id]?.completed
+                    ? 0
+                    : progressMap[selectedVideo.id]?.positionSecs
+                }
                 onProgress={({ currentTime, duration, ended }) => {
                   upsertProgress({
                     videoId: selectedVideo.id,

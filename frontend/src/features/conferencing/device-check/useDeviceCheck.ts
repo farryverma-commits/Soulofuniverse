@@ -77,6 +77,7 @@ export function useDeviceCheck() {
   // Guard so tracks firing "ended" from our own stop() don't reset UI state.
   const stoppingRef = useRef(false);
   const permissionStatusesRef = useRef<PermissionStatus[]>([]);
+  const disposedRef = useRef(false);
 
   const cleanupMedia = useCallback(() => {
     stoppingRef.current = true;
@@ -228,6 +229,12 @@ export function useDeviceCheck() {
         video: true,
         audio: true,
       });
+      // Unmounted while the prompt was open — stop the late stream instead of
+      // storing it (nothing would ever stop it; camera light would stay on).
+      if (disposedRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
       streamRef.current = stream;
       setMic("granted");
       setCamera("granted");
@@ -276,6 +283,10 @@ export function useDeviceCheck() {
         if (wanted.audio || wanted.video) {
           try {
             const partial = await navigator.mediaDevices.getUserMedia(wanted);
+            if (disposedRef.current) {
+              for (const track of partial.getTracks()) track.stop();
+              return;
+            }
             streamRef.current = partial;
             setTesting(true);
             if (videoRef.current && partial.getVideoTracks().length > 0) {
@@ -297,6 +308,8 @@ export function useDeviceCheck() {
 
   useEffect(() => {
     let disposed = false;
+    // StrictMode re-runs setup after a simulated unmount — re-arm the guard.
+    disposedRef.current = false;
 
     evaluatePermissions()
       .then((env) => {
@@ -321,6 +334,7 @@ export function useDeviceCheck() {
     // the page stays open (no reload needed in Chromium).
     const handlePermissionChange = () => {
       evaluatePermissions().then((env) => {
+        if (disposedRef.current) return;
         setMic(env.mic);
         setCamera(env.camera);
         if (env.mic === "denied" || env.camera === "denied") {
@@ -343,6 +357,10 @@ export function useDeviceCheck() {
           const status = await navigator.permissions.query({
             name: name as PermissionName,
           });
+          if (disposedRef.current) {
+            status.onchange = null;
+            return;
+          }
           permissionStatusesRef.current.push(status);
           status.onchange = handlePermissionChange;
         } catch {
@@ -354,6 +372,7 @@ export function useDeviceCheck() {
 
     return () => {
       disposed = true;
+      disposedRef.current = true;
       for (const status of permissionStatusesRef.current) {
         status.onchange = null;
       }
