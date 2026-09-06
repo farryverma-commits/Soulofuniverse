@@ -8,6 +8,8 @@ import {
   Shield,
   LogOut,
   User,
+  Mic,
+  MoreHorizontal,
   Sparkles,
   Sun,
   Moon,
@@ -95,10 +97,22 @@ import { VideoLibraryPage } from "./features/library/VideoLibraryPage";
 import { AdminDashboardPage } from "./features/admin/AdminDashboardPage";
 import { UserManagement } from "./features/admin/UserManagement";
 import { MeetingPage } from "./features/conferencing/MeetingPage";
+import { DeviceCheckPage } from "./features/conferencing/device-check/DeviceCheckPage";
 
 function DashboardLayout({ user, role }: { user: any; role: any }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
+  const [showMoreSheet, setShowMoreSheet] = React.useState(false);
   const { theme, toggleTheme } = useTheme();
+
+  // Escape closes the mobile "More" sheet
+  React.useEffect(() => {
+    if (!showMoreSheet) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowMoreSheet(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showMoreSheet]);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -116,9 +130,22 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
     setShowLogoutConfirm(false);
   };
 
-  const navItems = [
+  // `secondary: true` items stay out of the mobile bottom bar and live in the
+  // "More" sheet instead — the desktop sidebar always shows every item.
+  const navItems: {
+    to: string;
+    icon: React.ReactNode;
+    label: string;
+    secondary?: boolean;
+  }[] = [
     { to: "/", icon: <Home size={18} />, label: "Dashboard" },
     { to: "/library", icon: <BookOpen size={18} />, label: "Library" },
+    {
+      to: "/device-check",
+      icon: <Mic size={18} />,
+      label: "Device check",
+      secondary: true,
+    },
     //TODO: temporarily hiding this section until it is completed
     // ...(role === 'student' ? [{ to: '/scheduler', icon: <Calendar size={18} />, label: 'Schedule' }] : []),
     ...(role === "admin"
@@ -221,6 +248,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           <Routes>
             <Route path="/" element={<HomePage user={user} role={role} />} />
             <Route path="/library" element={<VideoLibraryPage />} />
+            <Route path="/device-check" element={<DeviceCheckPage />} />
             {/*TODO: temporarily hiding this section until it is completed*/}
             {/* <Route
               path="/scheduler"
@@ -239,7 +267,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
         </main>
       </div>
 
-      {/* Mobile Bottom Nav */}
+      {/* Mobile Bottom Nav — primary destinations only; utilities live in the More sheet */}
       <div
         className="md:hidden fixed bottom-0 left-0 right-0 backdrop-blur-md z-50 px-3 py-2 flex justify-around items-center"
         style={{
@@ -247,37 +275,96 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           borderTop: "1px solid var(--color-nav-border)",
         }}
       >
-        {navItems.map((item) => (
-          <MobileNavLink
-            key={item.to}
-            to={item.to}
-            icon={item.icon}
-            label={item.label}
-          />
-        ))}
+        {navItems
+          .filter((item) => !item.secondary)
+          .map((item) => (
+            <MobileNavLink
+              key={item.to}
+              to={item.to}
+              icon={item.icon}
+              label={item.label}
+            />
+          ))}
         <MobileNavLink
           to="/profile"
           icon={<Settings size={20} />}
           label="Profile"
         />
         <button
-          onClick={toggleTheme}
-          className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-text-secondary transition-colors"
-          aria-label="Toggle theme"
+          onClick={() => setShowMoreSheet(true)}
+          className="flex flex-col items-center gap-1 py-1 px-3"
+          aria-label="More options"
+          aria-expanded={showMoreSheet}
         >
-          {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-          <span className="text-[10px] font-semibold">
-            {theme === "dark" ? "Light" : "Dark"}
+          <MoreHorizontal
+            size={20}
+            className={showMoreSheet ? "text-primary" : "text-text-muted"}
+          />
+          <span
+            className={`text-[10px] font-semibold ${showMoreSheet ? "text-primary" : "text-text-muted"}`}
+          >
+            More
           </span>
         </button>
-        <button
-          onClick={confirmLogout}
-          className="flex flex-col items-center gap-1 py-1 px-3 text-text-muted hover:text-text-secondary transition-colors"
-        >
-          <LogOut size={20} />
-          <span className="text-[10px] font-semibold">Exit</span>
-        </button>
       </div>
+
+      {/* Mobile "More" Bottom Sheet */}
+      {showMoreSheet && (
+        <div
+          className="fixed inset-0 bg-nav/80 backdrop-blur-sm z-[100] animate-fade-in"
+          onClick={() => setShowMoreSheet(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="More options"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-0 inset-x-0 rounded-t-2xl bg-surface border-t border-border animate-slide-up"
+            style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+          >
+            <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-border" />
+            <div className="px-2 pt-2">
+              {navItems
+                .filter((item) => item.secondary)
+                .map((item) => (
+                  <MoreSheetLink
+                    key={item.to}
+                    to={item.to}
+                    icon={item.icon}
+                    label={item.label}
+                    onNavigate={() => setShowMoreSheet(false)}
+                  />
+                ))}
+              <div className="divider my-2" />
+              <button
+                onClick={toggleTheme}
+                className="flex items-center gap-3 w-full px-4 py-3.5 rounded-xl hover:bg-surface-raised transition-colors text-text"
+              >
+                <span className="text-text-muted">
+                  {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+                </span>
+                <span className="text-sm font-semibold">
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowMoreSheet(false);
+                  confirmLogout();
+                }}
+                className="flex items-center gap-3 w-full px-4 py-3.5 rounded-xl hover:bg-error-light transition-colors"
+              >
+                <span className="text-error">
+                  <LogOut size={20} />
+                </span>
+                <span className="text-sm font-semibold text-error">
+                  Sign out
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
@@ -367,6 +454,40 @@ function MobileNavLink({
       >
         {label}
       </span>
+    </Link>
+  );
+}
+
+function MoreSheetLink({
+  to,
+  icon,
+  label,
+  onNavigate,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  onNavigate: () => void;
+}) {
+  const location = useLocation();
+  const isActive = location.pathname === to;
+
+  return (
+    <Link
+      to={to}
+      onClick={onNavigate}
+      className={`flex items-center gap-3 px-4 py-3.5 rounded-xl transition-colors ${
+        isActive
+          ? "bg-primary-light text-primary"
+          : "hover:bg-surface-raised text-text"
+      }`}
+      aria-current={isActive ? "page" : undefined}
+    >
+      <span className={isActive ? "text-primary" : "text-text-muted"}>
+        {React.isValidElement(icon) &&
+          React.cloneElement(icon as React.ReactElement<any>, { size: 20 })}
+      </span>
+      <span className="text-sm font-semibold">{label}</span>
     </Link>
   );
 }

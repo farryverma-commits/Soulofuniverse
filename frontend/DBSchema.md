@@ -130,7 +130,31 @@ Stores video content metadata for the VOD library.
 
 ---
 
-### 5. `group_sessions`
+### 5. `video_watch_progress`
+
+Stores per-user playback progress for the VOD library (Continue Watching / resume). One row per `(user_id, video_id)`.
+
+| Column          | Type            | Description                                                     |
+| :-------------- | :-------------- | :-------------------------------------------------------------- |
+| `user_id`       | `uuid` (PK, FK) | References `profiles.id`. Part of the composite primary key.    |
+| `video_id`      | `uuid` (PK, FK) | References `videos.id`. Part of the composite primary key.      |
+| `position_secs` | `numeric(10,2)` | Last playback position in seconds (default: `0`, CHECK `>= 0`). |
+| `duration_secs` | `numeric(10,2)` | Video duration in seconds captured at save time (nullable).     |
+| `completed`     | `boolean`       | `true` once the user finished the video (default: `false`).     |
+| `created_at`    | `timestamptz`   | Timestamp when created.                                         |
+| `updated_at`    | `timestamptz`   | Timestamp when last updated (set by the client on each upsert). |
+
+**RLS Rules:**
+
+- `Users manage own video watch progress`: `ALL` where `auth.uid() = user_id` (added in `20260906080238_add_video_watch_progress.sql`).
+
+**Indexes:**
+
+- `idx_video_watch_progress_user_updated`: B-tree on (`user_id`, `updated_at DESC`) for last-watched ordering.
+
+---
+
+### 6. `group_sessions`
 
 Stores the scheduled meetings created by mentors.
 
@@ -154,7 +178,7 @@ Stores the scheduled meetings created by mentors.
 
 ---
 
-### 6. `session_participants`
+### 7. `session_participants`
 
 Tracks session attendance and the participant roster.
 
@@ -174,7 +198,7 @@ Tracks session attendance and the participant roster.
 
 ---
 
-### 7. `session_chats`
+### 8. `session_chats`
 
 Stores the persisted chat history for a session.
 
@@ -193,7 +217,7 @@ Stores the persisted chat history for a session.
 
 ---
 
-### 8. `meeting_logs`
+### 9. `meeting_logs`
 
 Maintains logs of meeting events (joins, leaves, raises hand, errors) for debugging and review.
 
@@ -212,7 +236,7 @@ Maintains logs of meeting events (joins, leaves, raises hand, errors) for debugg
 
 ---
 
-### 9. `session_recordings`
+### 10. `session_recordings`
 
 Stores metadata for LiveKit Egress recordings. Each recording corresponds to a single egress session.
 

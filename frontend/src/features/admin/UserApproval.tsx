@@ -116,7 +116,7 @@ export const UserApproval: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
           <AnimatePresence>
             {requests.map((request) => (
               <motion.div
@@ -126,33 +126,35 @@ export const UserApproval: React.FC = () => {
                 exit={{ opacity: 0, x: -20 }}
                 className="bg-surface border border-border rounded-xl p-4 hover:border-primary/30 transition-colors"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-3 min-w-0">
                     {/* Avatar */}
-                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <User className="w-6 h-6 text-primary" />
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <User className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                     </div>
 
                     {/* Info */}
-                    <div>
-                      <h3 className="text-text font-medium">
+                    <div className="min-w-0">
+                      <h3 className="text-text font-medium truncate">
                         {request.profiles?.full_name || "Unknown User"}
                       </h3>
-                      <div className="flex flex-wrap items-center gap-4 mt-1 text-sm">
-                        <span className="text-text-secondary flex items-center gap-1">
-                          <Mail className="w-3 h-3" />
-                          {request.profiles?.email || "No email"}
+                      <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1 mt-1 text-sm">
+                        <span className="text-text-secondary flex items-center gap-1 min-w-0">
+                          <Mail className="w-3 h-3 shrink-0" />
+                          <span className="truncate">
+                            {request.profiles?.email || "No email"}
+                          </span>
                         </span>
                         {request.profiles?.dob && (
                           <span className="text-text-muted flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
+                            <Calendar className="w-3 h-3 shrink-0" />
                             {new Date(
                               request.profiles.dob,
                             ).toLocaleDateString()}
                           </span>
                         )}
                         <span className="text-text-muted flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                          <Clock className="w-3 h-3 shrink-0" />
                           Requested{" "}
                           {new Date(request.requested_at).toLocaleDateString()}
                         </span>
@@ -164,22 +166,24 @@ export const UserApproval: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto shrink-0">
                     <button
                       onClick={() => handleApproval(request.user_id, false)}
                       disabled={processingId === request.user_id}
-                      className="p-2 rounded-lg bg-error/10 hover:bg-error/20 text-error transition-colors disabled:opacity-50"
                       title="Reject"
+                      className="flex-1 sm:flex-none h-11 px-4 rounded-lg bg-error/10 hover:bg-error/20 text-error text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                     >
-                      <XCircle className="w-5 h-5" />
+                      <XCircle className="w-4 h-4" />
+                      Reject
                     </button>
                     <button
                       onClick={() => handleApproval(request.user_id, true)}
                       disabled={processingId === request.user_id}
-                      className="p-2 rounded-lg bg-success/10 hover:bg-success/20 text-success transition-colors disabled:opacity-50"
                       title="Approve"
+                      className="flex-1 sm:flex-none h-11 px-4 rounded-lg bg-success/10 hover:bg-success/20 text-success text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                     >
-                      <CheckCircle className="w-5 h-5" />
+                      <CheckCircle className="w-4 h-4" />
+                      Approve
                     </button>
                   </div>
                 </div>

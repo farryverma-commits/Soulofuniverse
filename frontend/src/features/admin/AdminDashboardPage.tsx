@@ -68,14 +68,25 @@ export const AdminDashboardPage: React.FC = () => {
 
   const fetchGroupSessions = async () => {
     setSessionsLoading(true);
-    const { data } = await supabase
-      .from("group_sessions")
-      .select(`*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`)
-      .in("status", ["scheduled", "live"])
-      .order("scheduled_start_time", { ascending: true })
-      .limit(10);
-    setGroupSessions(data || []);
+    const sessionSelect = `*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`;
+    // Live sessions are fetched separately so they can never be cut off by
+    // the time-ordered limit — older (often stale) scheduled rows must not
+    // push a live session out of the admin's Join list.
+    const [{ data: live }, { data: upcoming }] = await Promise.all([
+      supabase
+        .from("group_sessions")
+        .select(sessionSelect)
+        .eq("status", "live")
+        .order("scheduled_start_time", { ascending: true }),
+      supabase
+        .from("group_sessions")
+        .select(sessionSelect)
+        .eq("status", "scheduled")
+        .order("scheduled_start_time", { ascending: true })
+        .limit(10),
+    ]);
     setSessionsLoading(false);
+    setGroupSessions([...(live ?? []), ...(upcoming ?? [])].slice(0, 10));
   };
 
   return (
@@ -92,7 +103,7 @@ export const AdminDashboardPage: React.FC = () => {
             Monitoring the pulse of Soul of Universe.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <CreateMentor />
           <button className="btn-secondary text-xs py-2">
             <Settings size={14} /> Settings
@@ -134,13 +145,8 @@ export const AdminDashboardPage: React.FC = () => {
         />
       </div>
 
-      {/* Pending Approvals Section */}
-      <div className="card card-glow p-6">
-        <UserApproval />
-      </div>
-
       {/* Group Sessions — admin can monitor and join any session */}
-      <div className="card card-glow p-6">
+      <div className="card card-glow p-4 sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-text">Group Sessions</h2>
           {!sessionsLoading && (
@@ -202,6 +208,11 @@ export const AdminDashboardPage: React.FC = () => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Pending Approvals Section */}
+      <div className="card card-glow p-4 sm:p-6">
+        <UserApproval />
       </div>
     </div>
   );
