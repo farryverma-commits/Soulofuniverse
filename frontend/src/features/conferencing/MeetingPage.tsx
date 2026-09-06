@@ -214,35 +214,42 @@ export const MeetingPage: React.FC = () => {
               onClick={async () => {
                 setIsStarting(true);
                 setStartError(null);
-                const {
-                  data: { session },
-                } = await supabase.auth.getSession();
-                const response = await fetch(
-                  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${session?.access_token}`,
+                try {
+                  const {
+                    data: { session },
+                  } = await supabase.auth.getSession();
+                  const response = await fetch(
+                    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${session?.access_token}`,
+                      },
+                      body: JSON.stringify({
+                        session_id: sessionId,
+                        action: "start",
+                      }),
                     },
-                    body: JSON.stringify({
-                      session_id: sessionId,
-                      action: "start",
-                    }),
-                  },
-                );
-                if (response.ok) {
-                  window.location.reload();
-                  return;
+                  );
+                  if (response.ok) {
+                    window.location.reload();
+                    return;
+                  }
+                  const err = await response.json().catch(() => ({}));
+                  const code = typeof err?.error === "string" ? err.error : null;
+                  setStartError(
+                    code === "VC_SERVER_NOT_READY"
+                      ? "VC Server is not ready yet. Please wait."
+                      : (code || "Something went wrong. Please try again."),
+                  );
+                } catch {
+                  setStartError(
+                    "Could not reach the server. Check your connection and try again.",
+                  );
+                } finally {
+                  setIsStarting(false);
                 }
-                const err = await response.json().catch(() => ({}));
-                setStartError(
-                  err?.error === "VC_SERVER_NOT_READY"
-                    ? "VC Server is not ready yet. Please wait."
-                    : err?.error ||
-                        "Something went wrong. Please try again.",
-                );
-                setIsStarting(false);
               }}
               className="btn-primary text-sm"
             >

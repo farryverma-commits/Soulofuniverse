@@ -99,20 +99,64 @@ import { UserManagement } from "./features/admin/UserManagement";
 import { MeetingPage } from "./features/conferencing/MeetingPage";
 import { DeviceCheckPage } from "./features/conferencing/device-check/DeviceCheckPage";
 
+// Inline-dialog focus management (there is no shared Modal primitive): moves
+// focus into the dialog on open, traps Tab while open, closes on Escape, and
+// restores focus to the trigger on close.
+function useDialogFocus(open: boolean, onClose: () => void) {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+
+    const focusables = () =>
+      ref.current
+        ? Array.from(
+            ref.current.querySelectorAll<HTMLElement>(
+              "a[href], button:not([disabled])",
+            ),
+          )
+        : [];
+
+    focusables()[0]?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || focusables().length === 0) return;
+      const first = focusables()[0];
+      const last = focusables()[focusables().length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previous?.focus();
+    };
+  }, [open, onClose]);
+
+  return ref;
+}
+
 function DashboardLayout({ user, role }: { user: any; role: any }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
   const [showMoreSheet, setShowMoreSheet] = React.useState(false);
   const { theme, toggleTheme } = useTheme();
 
-  // Escape closes the mobile "More" sheet
-  React.useEffect(() => {
-    if (!showMoreSheet) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowMoreSheet(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showMoreSheet]);
+  const closeMoreSheet = React.useCallback(() => setShowMoreSheet(false), []);
+  const cancelLogout = React.useCallback(() => setShowLogoutConfirm(false), []);
+
+  const moreSheetRef = useDialogFocus(showMoreSheet, closeMoreSheet);
+  const logoutDialogRef = useDialogFocus(showLogoutConfirm, cancelLogout);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -124,10 +168,6 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
 
   const confirmLogout = () => {
     setShowLogoutConfirm(true);
-  };
-
-  const cancelLogout = () => {
-    setShowLogoutConfirm(false);
   };
 
   // `secondary: true` items stay out of the mobile bottom bar and live in the
@@ -315,6 +355,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
           onClick={() => setShowMoreSheet(false)}
         >
           <div
+            ref={moreSheetRef}
             role="dialog"
             aria-modal="true"
             aria-label="More options"
@@ -369,7 +410,13 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-nav/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-surface rounded-2xl border border-border p-6 max-w-sm w-full animate-fade-in">
+          <div
+            ref={logoutDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sign out confirmation"
+            className="bg-surface rounded-2xl border border-border p-6 max-w-sm w-full animate-fade-in"
+          >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-error-light flex items-center justify-center">
                 <LogOut size={20} className="text-error" />

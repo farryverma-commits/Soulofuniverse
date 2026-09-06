@@ -71,13 +71,16 @@ export const AdminDashboardPage: React.FC = () => {
     const sessionSelect = `*, mentor:profiles!group_sessions_mentor_id_fkey(full_name)`;
     // Live sessions are fetched separately so they can never be cut off by
     // the time-ordered limit — older (often stale) scheduled rows must not
-    // push a live session out of the admin's Join list.
+    // push a live session out of the admin's Join list. The live query is
+    // still bounded at the panel cap (10) purely to cap payload; the slice
+    // below can never display more live rows than that.
     const [{ data: live }, { data: upcoming }] = await Promise.all([
       supabase
         .from("group_sessions")
         .select(sessionSelect)
         .eq("status", "live")
-        .order("scheduled_start_time", { ascending: true }),
+        .order("scheduled_start_time", { ascending: true })
+        .limit(10),
       supabase
         .from("group_sessions")
         .select(sessionSelect)
