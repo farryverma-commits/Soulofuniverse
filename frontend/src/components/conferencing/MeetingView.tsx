@@ -30,6 +30,7 @@ import {
 } from "livekit-client";
 import { useNavigate } from "react-router-dom";
 //import "@livekit/components-styles";
+import toast from "react-hot-toast";
 import { supabase } from "../../services/supabaseClient";
 import {
   Shield,
@@ -815,12 +816,16 @@ function MyVideoConference({
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const prevIsDesktopRef = useRef(window.innerWidth >= 768);
   const [sidebarTab, setSidebarTab] = useState<"chat" | "participants">("chat");
-  //const [isRecording, setIsRecording] = useState(false);
-  //const [egressId, setEgressId] = useState<string | null>(null);
-  // const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
-  //   null,
-  // );
-  // const [recordingDuration, setRecordingDuration] = useState("00:00");
+  const [isRecording, setIsRecording] = useState(false);
+  const [egressId, setEgressId] = useState<string | null>(null);
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
+    null,
+  );
+  const [recordingDuration, setRecordingDuration] = useState("00:00");
+  const [isRecordingToggling, setIsRecordingToggling] = useState(false);
+  // Whether a host is currently recording — drives the participants' REC chip
+  // (the host's own state comes from the toggle + DB restore below).
+  const [remoteRecording, setRemoteRecording] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
@@ -880,42 +885,50 @@ function MyVideoConference({
     chatMessages.length,
   );
 
-  // Restore recording state from DB on mount (handles page refresh mid-recording)
-  // useEffect(() => {
-  //   if (!isMentor) return;
-  //   const restoreRecordingState = async () => {
-  //     const { data } = await supabase
-  //       .from("session_recordings")
-  //       .select("egress_id, status, started_at")
-  //       .eq("session_id", sessionId)
-  //       .in("status", ["starting", "recording"])
-  //       .order("created_at", { ascending: false })
-  //       .limit(1)
-  //       .single();
+  // Restore recording state from DB on mount (handles page refresh
+  // mid-recording). Hosts only — mentor sees own sessions, admins see all
+  // (session_recordings RLS); students have no SELECT here by design.
+  useEffect(() => {
+    if (!isHost) return;
+    const restoreRecordingState = async () => {
+      const { data } = await supabase
+        .from("session_recordings")
+        .select("egress_id, status, started_at")
+        .eq("session_id", sessionId)
+        .in("status", ["starting", "recording"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-  //     if (data) {
-  //       setIsRecording(true);
-  //       setEgressId(data.egress_id);
-  //       setRecordingStartTime(new Date(data.started_at).getTime());
-  //     }
-  //   };
-  //   restoreRecordingState();
-  // }, [sessionId, isMentor]);
+      if (data) {
+        setIsRecording(true);
+        setEgressId(data.egress_id);
+        setRecordingStartTime(new Date(data.started_at).getTime());
+      }
+    };
+    restoreRecordingState();
+  }, [sessionId, isHost]);
 
-  // Recording duration timer
-  // useEffect(() => {
-  //   if (!isRecording || !recordingStartTime) {
-  //     setRecordingDuration("00:00");
-  //     return;
-  //   }
-  //   const interval = setInterval(() => {
-  //     const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-  //     const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
-  //     const secs = String(elapsed % 60).padStart(2, "0");
-  //     setRecordingDuration(`${mins}:${secs}`);
-  //   }, 1000);
-  //   return () => clearInterval(interval);
-  // }, [isRecording, recordingStartTime]);
+  // Recording duration timer — switches to h:mm:ss past one hour.
+  useEffect(() => {
+    if (!isRecording || !recordingStartTime) {
+      setRecordingDuration("00:00");
+      return;
+    }
+    const interval = setInterval(() => {
+      const elapsed = Math.max(
+        0,
+        Math.floor((Date.now() - recordingStartTime) / 1000),
+      );
+      const hours = Math.floor(elapsed / 3600);
+      const mins = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+      const secs = String(elapsed % 60).padStart(2, "0");
+      setRecordingDuration(
+        hours > 0 ? `${hours}:${mins}:${secs}` : `${mins}:${secs}`,
+      );
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRecording, recordingStartTime]);
 
   // Handle window resize for mobile detection and auto-close sidebar when transitioning from desktop to mobile
   useEffect(() => {
@@ -1013,6 +1026,23 @@ function MyVideoConference({
     const interval = setInterval(() => {
       if (sessionStatus === "ended" || navigatingRef.current) return;
       const allP = [localParticipant, ...allParticipantsRef.current];
+      // Recording indicator sync — hosts write `isRecording` into their
+      // participant metadata on toggle; this covers late joiners and any
+      // missed data-channel broadcast (the instant path is onDataReceived).
+      let hostRecording = false;
+      for (const p of allP) {
+        if (p.identity === localParticipant.identity) continue;
+        if (p.identity !== mentorId && !isParticipantAdmin(p)) continue;
+        try {
+          if (JSON.parse(p.metadata || "{}").isRecording) {
+            hostRecording = true;
+            break;
+          }
+        } catch {
+          /* malformed metadata — ignore */
+        }
+      }
+      setRemoteRecording(hostRecording);
       const mentor = allP.find((p) => {
         try {
           const meta = JSON.parse(p.metadata || "{}");
@@ -1149,6 +1179,18 @@ function MyVideoConference({
           return;
         }
 
+        // Hosts broadcast recording state on toggle; the 3s poll below is the
+        // catch-up path for late joiners and missed broadcasts.
+        if (
+          data.action === "RECORDING_STARTED" ||
+          data.action === "RECORDING_STOPPED"
+        ) {
+          if (!isHost) {
+            setRemoteRecording(data.action === "RECORDING_STARTED");
+          }
+          return;
+        }
+
         if (data.action === "MUTE_ALL" && !isHost) {
           devLog("Received MUTE_ALL command");
           await localParticipant.setMicrophoneEnabled(false);
@@ -1206,70 +1248,78 @@ function MyVideoConference({
     }
   };
 
-  // const handleToggleRecording = async () => {
-  //   if (!isMentor) return;
-  //   const {
-  //     data: { session: authSession },
-  //   } = await supabase.auth.getSession();
+  const handleToggleRecording = async () => {
+    if (!isHost || isRecordingToggling) return;
+    const stopping = isRecording;
+    setIsRecordingToggling(true);
+    try {
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authSession?.access_token}`,
+          },
+          body: JSON.stringify({
+            session_id: sessionId,
+            action: stopping ? "stop_recording" : "start_recording",
+            // stop_recording requires the egress_id; start_recording is
+            // idempotent server-side and returns the active egress_id.
+            ...(stopping && egressId ? { egress_id: egressId } : {}),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const code = typeof err?.error === "string" ? err.error : null;
+        throw new Error(code || "Something went wrong. Please try again.");
+      }
+      const data = await res.json().catch(() => ({}));
+      if (stopping) {
+        setIsRecording(false);
+        setEgressId(null);
+        setRecordingStartTime(null);
+        toast.success("Recording stopped");
+      } else {
+        setIsRecording(true);
+        setEgressId(data.egress_id ?? null);
+        setRecordingStartTime(Date.now());
+        toast.success("Recording started");
+      }
 
-  //   try {
-  //     if (isRecording) {
-  //       const res = await fetch(
-  //         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-  //         {
-  //           method: "POST",
-  //           headers: {
-  //             "Content-Type": "application/json",
-  //             Authorization: `Bearer ${authSession?.access_token}`,
-  //           },
-  //           body: JSON.stringify({
-  //             session_id: sessionId,
-  //             action: "stop_recording",
-  //             egress_id: egressId,
-  //           }),
-  //         },
-  //       );
-  //       if (!res.ok) {
-  //         const err = await res
-  //           .json()
-  //           .catch(() => ({ error: "Unknown error" }));
-  //         console.error("Failed to stop recording:", err.error);
-  //         return;
-  //       }
-  //       setIsRecording(false);
-  //       setEgressId(null);
-  //       setRecordingStartTime(null);
-  //     } else {
-  //       const res = await fetch(
-  //         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/livekit-manage-session`,
-  //         {
-  //           method: "POST",
-  //           headers: {
-  //             "Content-Type": "application/json",
-  //             Authorization: `Bearer ${authSession?.access_token}`,
-  //           },
-  //           body: JSON.stringify({
-  //             session_id: sessionId,
-  //             action: "start_recording",
-  //           }),
-  //         },
-  //       );
-  //       if (!res.ok) {
-  //         const err = await res
-  //           .json()
-  //           .catch(() => ({ error: "Unknown error" }));
-  //         console.error("Failed to start recording:", err.error);
-  //         return;
-  //       }
-  //       const data = await res.json();
-  //       setIsRecording(true);
-  //       setEgressId(data.egress_id);
-  //       setRecordingStartTime(Date.now());
-  //     }
-  //   } catch (err) {
-  //     console.error("Recording toggle failed:", err);
-  //   }
-  // };
+      // Broadcast to participants (instant REC chip) and mirror the flag in
+      // the host's metadata so the 3s poll can restore it for late joiners.
+      try {
+        const encoder = new TextEncoder();
+        await localParticipant?.publishData(
+          encoder.encode(
+            JSON.stringify({
+              action: stopping ? "RECORDING_STOPPED" : "RECORDING_STARTED",
+            }),
+          ),
+          { reliable: true },
+        );
+        const currentMeta = JSON.parse(localParticipant?.metadata || "{}");
+        await localParticipant?.setMetadata(
+          JSON.stringify({ ...currentMeta, isRecording: !stopping }),
+        );
+      } catch (broadcastErr) {
+        // UI state already reflects backend truth — broadcast is best-effort.
+        console.error("Failed to broadcast recording state:", broadcastErr);
+      }
+    } catch (err) {
+      console.error("Recording toggle failed:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Recording toggle failed",
+      );
+    } finally {
+      setIsRecordingToggling(false);
+    }
+  };
 
   // Layout Logic: Mentor always visible, active speakers alongside
   // Track filtering logic
@@ -1583,6 +1633,20 @@ function MyVideoConference({
                     />
                   )}
                 </div>
+                {/* Recording indicator for participants — hosts see the live
+                    Rec control in the bar instead; the flag arrives via the
+                    data channel instantly and is re-synced by the 3s poll. */}
+                {!isHost && remoteRecording && (
+                  <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full border border-red-500/30 bg-black/70 px-2.5 py-1 shadow-lg backdrop-blur-md animate-fade-in">
+                    <span className="relative flex h-2 w-2" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                    </span>
+                    <span className="text-[10px] font-black tracking-widest text-white">
+                      REC
+                    </span>
+                  </div>
+                )}
                 {/* Host Reconnecting fallback — matches Zoom/Meet frozen-tile
                     pattern. Covers both windows: host fully removed from the
                     room (no track, identity gone) AND host dropped but still
@@ -1687,6 +1751,26 @@ function MyVideoConference({
                     onClick={handleMuteAll}
                     aria-label="Mute all participants"
                     icon={<MicOff className="w-5 h-5 text-red-400" />}
+                    minimal={true}
+                  />
+                </span>
+              )}
+              {isHost && (
+                <span className="snap-start shrink-0">
+                  <ControlActionButton
+                    onClick={handleToggleRecording}
+                    disabled={isRecordingToggling}
+                    aria-label={
+                      isRecording
+                        ? `Stop recording (${recordingDuration})`
+                        : "Start recording"
+                    }
+                    icon={
+                      <CircleDot
+                        className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : "text-white"}`}
+                      />
+                    }
+                    isActive={isRecording}
                     minimal={true}
                   />
                 </span>
@@ -1911,9 +1995,10 @@ function MyVideoConference({
                     />
                   )}
 
-                  {/* {isMentor && (
+                  {isHost && (
                     <ControlActionButton
                       onClick={handleToggleRecording}
+                      disabled={isRecordingToggling}
                       icon={
                         <CircleDot
                           className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : "text-gray-100"}`}
@@ -1925,7 +2010,7 @@ function MyVideoConference({
                       isActive={isRecording}
                       activeColor="text-red-500"
                     />
-                  )} */}
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-4 shrink-0">
@@ -2234,18 +2319,20 @@ function ControlActionButton({
   activeColor = "text-white",
   minimal,
   badge,
+  disabled,
   "aria-label": ariaLabel,
 }: any) {
   if (minimal) {
     return (
       <button
         onClick={onClick}
+        disabled={disabled}
         aria-label={ariaLabel || label}
         className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
           isActive
             ? "bg-white text-gray-900 border border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]"
             : "bg-white/10 hover:bg-white/20 text-white"
-        }`}
+        } ${disabled ? "opacity-50" : ""}`}
       >
         <div className="relative transition-transform duration-200 group-hover:scale-110">
           {icon}
@@ -2262,8 +2349,9 @@ function ControlActionButton({
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       aria-label={ariaLabel || label}
-      className={`px-2 py-2 md:px-4 md:py-3 rounded-2xl flex flex-col items-center gap-1 md:gap-1.5 transition-all hover:bg-white/10 min-w-[50px] md:min-w-[80px] group ${isActive ? "bg-white/15 shadow-inner" : ""}`}
+      className={`px-2 py-2 md:px-4 md:py-3 rounded-2xl flex flex-col items-center gap-1 md:gap-1.5 transition-all hover:bg-white/10 min-w-[50px] md:min-w-[80px] group ${isActive ? "bg-white/15 shadow-inner" : ""} ${disabled ? "opacity-50" : ""}`}
     >
       <div className="relative transition-transform duration-200 group-hover:scale-110">
         <div className={`${isActive ? activeColor : "text-gray-100"}`}>

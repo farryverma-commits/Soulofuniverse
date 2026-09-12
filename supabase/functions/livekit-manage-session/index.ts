@@ -4,6 +4,7 @@ import {
   EgressInfo,
   EncodedFileOutput,
   EncodedFileType,
+  EncodingOptions,
   RoomServiceClient,
 } from "npm:livekit-server-sdk@2.1.2";
 import { authorizeTelemetry } from "./telemetry_auth.ts";
@@ -413,6 +414,14 @@ Deno.serve(async (req: Request) => {
           livekitApiSecret,
         );
 
+        // Minimal-size recording for this session format: the mentor is the
+        // only video publisher (students join audio-only), so the composite
+        // always shows the mentor while student questions are mixed into the
+        // audio track. 720p30 @ 1 Mbps video + 64 kbps OPUS ≈ 0.47 GB/h
+        // (the default preset H264_720P_30 records 3000k+128k ≈ 1.4 GB/h).
+        // With `advanced`, unset fields fall back to 1080p/4500k — set
+        // width/height/framerate/bitrates explicitly. Codec fields omitted:
+        // egress defaults are OPUS / H264_MAIN.
         const result = await egressClient.startRoomCompositeEgress(
           `session_${session_id}`,
           new EncodedFileOutput({
@@ -421,6 +430,13 @@ Deno.serve(async (req: Request) => {
           }),
           {
             layout: "single-speaker",
+            advanced: new EncodingOptions({
+              width: 1280,
+              height: 720,
+              framerate: 30,
+              videoBitrate: 1000,
+              audioBitrate: 64,
+            }),
           },
         );
         // console.log(`Egress client: ${egressClient}, Result: ${result}`)
