@@ -823,6 +823,9 @@ function MyVideoConference({
   );
   const [recordingDuration, setRecordingDuration] = useState("00:00");
   const [isRecordingToggling, setIsRecordingToggling] = useState(false);
+  // Ref mirror so async sync helpers can skip while a toggle is in flight
+  // (state updates lag behind the request).
+  const isRecordingTogglingRef = useRef(false);
   // Whether a host is currently recording — drives the participants' REC chip
   // (the host's own state comes from the toggle + DB restore below).
   const [remoteRecording, setRemoteRecording] = useState(false);
@@ -885,29 +888,48 @@ function MyVideoConference({
     chatMessages.length,
   );
 
+  // Single source of truth for recording state: the active session_recordings
+  // row. Hosts re-sync from it on events and poll mismatches so the mentor and
+  // admin co-host never drift apart — broadcasts only ever act as triggers,
+  // never as state (they are client-forgeable; the DB row is not).
+  const syncRecordingFromDb = useCallback(async () => {
+    if (!isHost || isRecordingTogglingRef.current) return;
+    const { data } = await supabase
+      .from("session_recordings")
+      .select("egress_id, status, started_at")
+      .eq("session_id", sessionId)
+      .in("status", ["starting", "recording"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      setIsRecording(true);
+      setEgressId(data.egress_id);
+      // started_at is stamped server-side — both hosts' timers stay in sync.
+      setRecordingStartTime(new Date(data.started_at).getTime());
+    } else {
+      setIsRecording(false);
+      setEgressId(null);
+      setRecordingStartTime(null);
+    }
+  }, [isHost, sessionId]);
+
   // Restore recording state from DB on mount (handles page refresh
   // mid-recording). Hosts only — mentor sees own sessions, admins see all
   // (session_recordings RLS); students have no SELECT here by design.
   useEffect(() => {
-    if (!isHost) return;
-    const restoreRecordingState = async () => {
-      const { data } = await supabase
-        .from("session_recordings")
-        .select("egress_id, status, started_at")
-        .eq("session_id", sessionId)
-        .in("status", ["starting", "recording"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    void syncRecordingFromDb();
+  }, [syncRecordingFromDb]);
 
-      if (data) {
-        setIsRecording(true);
-        setEgressId(data.egress_id);
-        setRecordingStartTime(new Date(data.started_at).getTime());
-      }
-    };
-    restoreRecordingState();
-  }, [sessionId, isHost]);
+  // Hosts: catch desyncs that events or the poll reveal — e.g. the other host
+  // stopped or restarted a recording, or this client missed broadcasts after a
+  // reconnect. Fires only when the event/poll-derived signal disagrees with
+  // local state, so it cannot loop.
+  useEffect(() => {
+    if (!isHost || remoteRecording === isRecording) return;
+    void syncRecordingFromDb();
+  }, [remoteRecording, isRecording, isHost, syncRecordingFromDb]);
 
   // Recording duration timer — switches to h:mm:ss past one hour.
   useEffect(() => {
@@ -1185,8 +1207,21 @@ function MyVideoConference({
           data.action === "RECORDING_STARTED" ||
           data.action === "RECORDING_STOPPED"
         ) {
-          if (!isHost) {
-            setRemoteRecording(data.action === "RECORDING_STARTED");
+          // Hosts: re-sync from the DB row — the broadcast is only a trigger;
+          // the record is the source of truth (broadcasts are client-
+          // forgeable, DB state is not). Students: trust the chip update only
+          // from host senders (same predicate as the poll's host scan), so a
+          // forged message can't hide an active recording indicator.
+          if (isHost) {
+            void syncRecordingFromDb();
+          } else {
+            const sentByHost =
+              participant &&
+              (String(participant.identity) === String(mentorId) ||
+                isParticipantAdmin(participant));
+            if (sentByHost) {
+              setRemoteRecording(data.action === "RECORDING_STARTED");
+            }
           }
           return;
         }
@@ -1221,7 +1256,7 @@ function MyVideoConference({
     return () => {
       room.off("dataReceived", onDataReceived);
     };
-  }, [room, localParticipant, isHost]);
+  }, [room, localParticipant, isHost, syncRecordingFromDb]);
 
   const handleMuteAll = async () => {
     if (!isHost || !localParticipant) return;
@@ -1249,9 +1284,10 @@ function MyVideoConference({
   };
 
   const handleToggleRecording = async () => {
-    if (!isHost || isRecordingToggling) return;
+    if (!isHost || isRecordingTogglingRef.current) return;
     const stopping = isRecording;
     setIsRecordingToggling(true);
+    isRecordingTogglingRef.current = true;
     try {
       const {
         data: { session: authSession },
@@ -1318,6 +1354,7 @@ function MyVideoConference({
       );
     } finally {
       setIsRecordingToggling(false);
+      isRecordingTogglingRef.current = false;
     }
   };
 
