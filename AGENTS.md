@@ -97,6 +97,7 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Session Recording | Built | LiveKit Egress with FilesysUpload, mentor+admin access, `session_recordings` table; minimal-size encoding (720p30, 1 Mbps video, 64k OPUS ≈ 0.47 GB/h) |
 | Password Reset (Admin) | Built | Admin resets student/mentor passwords via `admin-reset-password` edge function |
 | Password Change (Self) | Built | Users change own password via `/profile` settings page |
+| 404 Not Found Page | Built | Logged-in unknown URLs render a 404 page inside the dashboard layout |
 
 ## Common Workflows
 - **Adding a new table:** Create migration in `supabase/`, update RLS, update `frontend/DBSchema.md`

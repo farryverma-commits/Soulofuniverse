@@ -98,6 +98,7 @@ import { AdminDashboardPage } from "./features/admin/AdminDashboardPage";
 import { UserManagement } from "./features/admin/UserManagement";
 import { MeetingPage } from "./features/conferencing/MeetingPage";
 import { DeviceCheckPage } from "./features/conferencing/device-check/DeviceCheckPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Inline-dialog focus management (there is no shared Modal primitive): moves
 // focus into the dialog on open, traps Tab while open, closes on Escape, and
@@ -303,6 +304,7 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
               }
             />
             <Route path="/profile" element={<ProfileSettingsPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
       </div>
