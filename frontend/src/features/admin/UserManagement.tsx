@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Search,
   Filter,
@@ -9,6 +10,7 @@ import {
   Trash2,
   KeyRound,
   AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import { supabase } from "../../services/supabaseClient";
 import toast from "react-hot-toast";
@@ -158,6 +160,12 @@ export const UserManagement: React.FC = () => {
         {/* <button className="btn-primary text-xs py-2">
           <UserCircle size={14} /> Export users
         </button> */}
+        <Link
+          to="/admin/feedback"
+          className="btn-secondary text-xs py-2 inline-flex items-center gap-2"
+        >
+          <MessageSquare size={14} /> View feedback
+        </Link>
       </header>
 
       <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">

@@ -9,6 +9,7 @@ import {
   LogOut,
   User,
   Mic,
+  MessageSquare,
   MoreHorizontal,
   Sparkles,
   Sun,
@@ -98,6 +99,8 @@ import { AdminDashboardPage } from "./features/admin/AdminDashboardPage";
 import { UserManagement } from "./features/admin/UserManagement";
 import { MeetingPage } from "./features/conferencing/MeetingPage";
 import { DeviceCheckPage } from "./features/conferencing/device-check/DeviceCheckPage";
+import { FeedbackPage } from "./features/feedback/FeedbackPage";
+import { FeedbackManagement } from "./features/admin/FeedbackManagement";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Inline-dialog focus management (there is no shared Modal primitive): moves
@@ -185,6 +188,12 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
       to: "/device-check",
       icon: <Mic size={18} />,
       label: "Device check",
+      secondary: true,
+    },
+    {
+      to: "/feedback",
+      icon: <MessageSquare size={18} />,
+      label: "Feedback",
       secondary: true,
     },
     //TODO: temporarily hiding this section until it is completed
@@ -304,6 +313,17 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
               }
             />
             <Route path="/profile" element={<ProfileSettingsPage />} />
+            <Route path="/feedback" element={<FeedbackPage />} />
+            <Route
+              path="/admin/feedback"
+              element={
+                role === "admin" ? (
+                  <FeedbackManagement />
+                ) : (
+                  <Navigate to="/" />
+                )
+              }
+            />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>

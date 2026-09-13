@@ -98,6 +98,7 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Password Reset (Admin) | Built | Admin resets student/mentor passwords via `admin-reset-password` edge function |
 | Password Change (Self) | Built | Users change own password via `/profile` settings page |
 | 404 Not Found Page | Built | Logged-in unknown URLs render a 404 page inside the dashboard layout |
+| Feedback Form | Built | Simple `/feedback` page (category + message) for all roles; admin review list at `/admin/feedback` backed by `feedback` table |
 
 ## Common Workflows
 - **Adding a new table:** Create migration in `supabase/`, update RLS, update `frontend/DBSchema.md`

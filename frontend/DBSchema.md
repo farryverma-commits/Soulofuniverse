@@ -237,7 +237,6 @@ Maintains logs of meeting events (joins, leaves, raises hand, errors) for debugg
 ---
 
 ### 10. `session_recordings`
-
 Stores metadata for LiveKit Egress recordings. Each recording corresponds to a single egress session.
 
 | Column          | Type          | Description                                                         |
@@ -266,6 +265,33 @@ Stores metadata for LiveKit Egress recordings. Each recording corresponds to a s
 - `Mentors can view their session recordings`: `SELECT` where mentor owns the session.
 - `Admins can view all recordings`: `SELECT` where user role is `admin`.
 - `Insert/Update`: Managed via Service Role in Edge Functions.
+
+---
+
+### 11. `feedback`
+
+Stores user-submitted queries and feature feedback. Simple write-once store: users insert their own rows, admins read all and flip `status` to `reviewed`.
+
+| Column     | Type          | Description                                                                 |
+| :--------- | :------------ | :-------------------------------------------------------------------------- |
+| `id`       | `uuid` (PK)   | Unique identifier (default: `gen_random_uuid()`).                           |
+| `user_id`  | `uuid` (FK)   | References `profiles.id`. ON DELETE CASCADE.                                |
+| `category` | `text`        | `question`, `problem`, `idea`, or `other` (default: `question`).            |
+| `message`  | `text`        | Feedback text (1–5000 chars, enforced by CHECK).                            |
+| `status`   | `text`        | `new` or `reviewed` (default: `new`).                                       |
+| `created_at` | `timestamptz` | Timestamp when submitted.                                                 |
+
+**RLS Rules:**
+
+- `Users insert own feedback`: `INSERT` where `auth.uid() = user_id`.
+- `Users view own feedback`: `SELECT` where `auth.uid() = user_id`.
+- `Admins view all feedback`: `SELECT` where `auth.jwt() #>> '{app_metadata,user_role}' = 'admin'` AND `user_status = 'approved'` (JWT-based, no `EXISTS` recursion).
+- `Admins mark feedback reviewed`: `UPDATE` with the same JWT admin check. No user UPDATE/DELETE; no anon access.
+
+**Indexes:**
+
+- `idx_feedback_created_at`: B-tree on (`created_at DESC`).
+- `idx_feedback_user_id`: B-tree on (`user_id`).
 
 ---
 
