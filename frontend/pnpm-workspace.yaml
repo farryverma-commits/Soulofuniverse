@@ -1,0 +1,7 @@
+minimumReleaseAgeExclude:
+  - '@reticlehq/babel-plugin@3.1.0'
+  - '@reticlehq/browser@3.1.0'
+  - '@reticlehq/core@3.1.0'
+  - '@reticlehq/react@3.1.0'
+  - '@reticlehq/vite-plugin@3.1.0'
+  - open-verification@1.0.0

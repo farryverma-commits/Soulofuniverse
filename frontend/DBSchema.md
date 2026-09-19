@@ -114,14 +114,17 @@ Stores video content metadata for the VOD library.
 | `slug`       | `text` (Unique) | URL-friendly identifier.                          |
 | `master_url` | `text`          | URL to the master video file.                     |
 | `thumb_url`  | `text`          | URL to the video thumbnail.                       |
-| `status`     | `text`          | Processing status (default: `processing`).        |
+| `status`     | `text`          | Lifecycle: `processing`, `under_review`, `published`, `failed` (default: `processing`, enforced by `videos_status_check`). |
 | `metadata`   | `jsonb`         | Stores duration, resolution, and other metadata.  |
 | `created_at` | `timestamptz`   | Timestamp when created.                           |
 | `updated_at` | `timestamptz`   | Timestamp when last updated.                      |
 
+**Lifecycle:** the video engine writes `under_review` when transcoding finishes (never user-visible). An admin timestamps the video and flips it to `published` from the review editor; only `published` rows reach the user library. `Unpublish` returns a row to `under_review`. Legacy `ready` rows were backfilled to `published` in `20260913104930_video_topic_timestamping.sql`.
+
 **RLS Rules:**
 
-- `Approved users can view videos via JWT`: `SELECT` where `auth.jwt() #>> '{app_metadata, user_status}' = 'approved'`.
+- `Approved users can view published videos via JWT`: `SELECT` where `auth.jwt() #>> '{app_metadata, user_status}' = 'approved'` AND (`status = 'published'` OR admin role via JWT). Non-admin users never see `processing`/`under_review`/`failed` rows.
+- `Admins can update video status via JWT`: `UPDATE` (publish/unpublish) where admin role + approved status via JWT.
 - `Allow service role to manage videos`: `ALL` for `service_role`.
 
 **Indexes:**
@@ -292,6 +295,83 @@ Stores user-submitted queries and feature feedback. Simple write-once store: use
 
 - `idx_feedback_created_at`: B-tree on (`created_at DESC`).
 - `idx_feedback_user_id`: B-tree on (`user_id`).
+
+---
+
+### 12. `topics`
+
+Master list of tags used to timestamp videos. Topics == tags: one concept, one table (added in `20260913104930_video_topic_timestamping.sql`).
+
+| Column        | Type            | Description                                                                 |
+| :------------ | :-------------- | :-------------------------------------------------------------------------- |
+| `id`          | `uuid` (PK)     | Unique identifier (default: `gen_random_uuid()`).                           |
+| `name`        | `text`          | Topic/tag name (1–80 chars, case-insensitive unique via `ux_topics_lower_name`). |
+| `description` | `text`          | Short description (default: `''`).                                          |
+| `created_by`  | `uuid` (FK)     | References `profiles.id` (the admin who created it). ON DELETE SET NULL.    |
+| `created_at`  | `timestamptz`   | Timestamp when created.                                                     |
+| `updated_at`  | `timestamptz`   | Timestamp when last renamed.                                                |
+
+**RLS Rules:**
+
+- `Approved users can view topics via JWT`: `SELECT` where `user_status = 'approved'`.
+- `Admins manage topics via JWT`: `ALL` (insert/rename/delete) where admin role + approved status via JWT.
+
+**Indexes:**
+
+- `ux_topics_lower_name`: Unique B-tree on `lower(name)`.
+- `idx_topics_created_at`: B-tree on (`created_at DESC`).
+
+---
+
+### 13. `video_timestamps`
+
+Admin-authored point marks: one (video, topic, second) per row. Clicking a search result seeks the player to `timestamp_secs` (added in `20260913104930_video_topic_timestamping.sql`).
+
+| Column           | Type            | Description                                                                 |
+| :--------------- | :-------------- | :-------------------------------------------------------------------------- |
+| `id`             | `uuid` (PK)     | Unique identifier (default: `gen_random_uuid()`).                           |
+| `video_id`       | `uuid` (FK)     | References `videos.id`. ON DELETE CASCADE.                                  |
+| `topic_id`       | `uuid` (FK)     | References `topics.id`. ON DELETE RESTRICT (blocks deleting in-use topics). |
+| `timestamp_secs` | `numeric(10,2)` | Point in seconds (`>= 0`). Anti-dupe `UNIQUE (video_id, topic_id, timestamp_secs)`. |
+| `note`           | `text`          | Optional admin note (max 280 chars, nullable).                              |
+| `created_by`     | `uuid` (FK)     | References `profiles.id`. ON DELETE SET NULL.                               |
+| `created_at`     | `timestamptz`   | Timestamp when created.                                                     |
+
+**RLS Rules:**
+
+- `Approved users can view video timestamps via JWT`: `SELECT` where `user_status = 'approved'`.
+- `Admins manage video timestamps via JWT`: `ALL` where admin role + approved status via JWT.
+
+**Indexes:**
+
+- `idx_video_timestamps_video_time`: B-tree on (`video_id`, `timestamp_secs`).
+- `idx_video_timestamps_topic`: B-tree on (`topic_id`).
+
+---
+
+### 14. `topic_interactions`
+
+Per-user topic telemetry powering the personal "Because you watch X" row and admin trending. `search` rows log topic searches; `play` rows log moment/marks playback (added in `20260913104930_video_topic_timestamping.sql`).
+
+| Column     | Type            | Description                                                                 |
+| :--------- | :-------------- | :-------------------------------------------------------------------------- |
+| `id`       | `uuid` (PK)     | Unique identifier (default: `gen_random_uuid()`).                           |
+| `user_id`  | `uuid` (FK)     | References `profiles.id`. ON DELETE CASCADE.                                |
+| `topic_id` | `uuid` (FK)     | References `topics.id`. ON DELETE CASCADE.                                  |
+| `video_id` | `uuid` (FK, nullable) | References `videos.id` (set for `play`, null for `search`). ON DELETE CASCADE. |
+| `type`     | `text`          | `search` or `play`.                                                         |
+| `created_at` | `timestamptz` | Timestamp of the interaction.                                               |
+
+**RLS Rules:**
+
+- `Users manage own topic interactions`: `ALL` where `auth.uid() = user_id`.
+- `Admins can view all topic interactions via JWT`: `SELECT` where admin role + approved status via JWT (powers trending aggregation).
+
+**Indexes:**
+
+- `idx_topic_interactions_user_topic`: B-tree on (`user_id`, `topic_id`).
+- `idx_topic_interactions_topic_created`: B-tree on (`topic_id`, `created_at DESC`).
+- `idx_topic_interactions_user_created`: B-tree on (`user_id`, `created_at DESC`).
 
 ---
 

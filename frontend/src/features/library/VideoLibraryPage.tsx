@@ -3,6 +3,13 @@ import { Play, X, PlayCircle, BookOpen, Check } from "lucide-react";
 import { supabase } from "../../services/supabaseClient";
 import { VideoPlayer } from "../../components/VideoPlayer";
 import { useWatchProgress, type Video } from "./useWatchProgress";
+import { TopicSearchBar } from "../topics/TopicSearchBar";
+import { PersonalTopicRow } from "../topics/PersonalTopicRow";
+import { useTopicSearch, type TopicMoment } from "../topics/useTopicSearch";
+import {
+  formatTimestamp,
+  useVideoTimestamps,
+} from "../topics/useVideoTimestamps";
 
 interface ProgressView {
   percent: number;
@@ -44,14 +51,19 @@ const VideoCardSkeleton: React.FC = () => (
 
 export const VideoLibraryPage: React.FC = () => {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [momentSeek, setMomentSeek] = useState<number | null>(null);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const playerHandleRef = useRef<any>(null);
 
   const { progressMap, lastWatched, upsertProgress } =
     useWatchProgress(videos);
+
+  const { logPlay } = useTopicSearch();
+  const { marks } = useVideoTimestamps(selectedVideo?.id ?? null);
 
   const heroVideo = useMemo(
     () =>
@@ -89,8 +101,53 @@ export const VideoLibraryPage: React.FC = () => {
 
   const closeModal = useCallback(() => {
     previousFocusRef.current?.focus();
+    playerHandleRef.current = null;
+    setMomentSeek(null);
     setSelectedVideo(null);
   }, []);
+
+  const openVideo = useCallback(
+    (video: Video, resumeAt?: number, topicId?: string) => {
+      playerHandleRef.current = null;
+      setMomentSeek(resumeAt ?? null);
+      setSelectedVideo(video);
+      if (topicId) logPlay(topicId, video.id);
+    },
+    [logPlay],
+  );
+
+  const handlePlayMoment = useCallback(
+    (moment: TopicMoment) => {
+      const video = videos.find((v) => v.id === moment.videoId);
+      if (!video) return;
+      openVideo(video, moment.timestampSecs, moment.topicId);
+    },
+    [videos, openVideo],
+  );
+
+  const seekToMark = useCallback(
+    (timestampSecs: number, topicId: string) => {
+      const p = playerHandleRef.current;
+      if (p && !p.isDisposed?.()) {
+        try {
+          p.currentTime(timestampSecs);
+          p.play();
+        } catch {
+          /* player not ready */
+        }
+      }
+      if (selectedVideo) logPlay(topicId, selectedVideo.id);
+    },
+    [selectedVideo, logPlay],
+  );
+
+  const modalResumeAt =
+    momentSeek ??
+    (selectedVideo
+      ? (progressMap[selectedVideo.id]?.completed
+        ? 0
+        : progressMap[selectedVideo.id]?.positionSecs)
+      : undefined);
 
   useEffect(() => {
     if (!selectedVideo) return;
@@ -138,6 +195,7 @@ export const VideoLibraryPage: React.FC = () => {
         const { data, error } = await supabase
           .from("videos")
           .select("*")
+          .eq("status", "published")
           .order("created_at", { ascending: false });
 
         if (error) throw error;
@@ -208,11 +266,15 @@ export const VideoLibraryPage: React.FC = () => {
         <span className="section-label">{videos.length} recordings</span>
       </div>
 
+      <TopicSearchBar onPlayMoment={handlePlayMoment} />
+
+      <PersonalTopicRow videos={videos} onPlayVideo={openVideo} />
+
       {heroVideo && (
         <section aria-label="Continue watching">
           <h2 className="section-label">Continue watching</h2>
           <button
-            onClick={() => setSelectedVideo(heroVideo)}
+            onClick={() => openVideo(heroVideo)}
             className="group relative mt-3 block w-full text-left rounded-2xl overflow-hidden animate-fade-in shadow-lg shadow-black/20 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
           >
             <div className="absolute inset-0">
@@ -275,7 +337,7 @@ export const VideoLibraryPage: React.FC = () => {
               return (
                 <button
                   key={video.id}
-                  onClick={() => setSelectedVideo(video)}
+                  onClick={() => openVideo(video)}
                   className="group cursor-pointer animate-fade-in text-left w-full focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 rounded-xl transition-transform duration-300 ease-out hover:-translate-y-1"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
@@ -359,11 +421,11 @@ export const VideoLibraryPage: React.FC = () => {
           <div className="w-full max-w-5xl aspect-video bg-[#060610] rounded-xl overflow-hidden shadow-2xl relative mt-12 md:mt-0 flex-shrink-0 border border-white/[0.04]">
             {selectedVideo.master_url ? (
               <VideoPlayer
-                resumeAt={
-                  progressMap[selectedVideo.id]?.completed
-                    ? 0
-                    : progressMap[selectedVideo.id]?.positionSecs
-                }
+                exactSeek={momentSeek !== null}
+                resumeAt={modalResumeAt}
+                onReady={(p) => {
+                  playerHandleRef.current = p;
+                }}
                 onProgress={({ currentTime, duration, ended }) => {
                   upsertProgress({
                     videoId: selectedVideo.id,
@@ -379,21 +441,6 @@ export const VideoLibraryPage: React.FC = () => {
                   responsive: true,
                   fill: true,
                   playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-                  controlBar: {
-                    children: [
-                      "playToggle",
-                      "volumePanel",
-                      "currentTimeDisplay",
-                      "timeDivider",
-                      "durationDisplay",
-                      "progressControl",
-                      "spacer",
-                      "playbackRateMenuButton",
-                      "subsCapsButton",
-                      "audioTrackButton",
-                      "fullscreenToggle",
-                    ],
-                  },
                   sources: [
                     {
                       src: selectedVideo.master_url,
@@ -428,6 +475,23 @@ export const VideoLibraryPage: React.FC = () => {
               <span className="w-0.5 h-0.5 bg-white/10 rounded-full" />
               <span>{selectedVideo.duration}</span>
             </div>
+            {marks.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-4" aria-label="Topics in this video">
+                {marks.map((mark) => (
+                  <button
+                    key={mark.id}
+                    onClick={() => seekToMark(mark.timestampSecs, mark.topicId)}
+                    className="inline-flex items-center gap-1.5 h-11 px-3.5 rounded-lg bg-white/[0.04] hover:bg-primary/20 border border-white/10 hover:border-primary/40 text-white/70 hover:text-primary text-xs font-semibold transition-colors"
+                    title={mark.note ?? `Jump to ${mark.topicName}`}
+                  >
+                    {mark.topicName}
+                    <span className="font-mono opacity-70">
+                      {formatTimestamp(mark.timestampSecs)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-white/40 text-sm leading-relaxed mt-4 max-w-2xl">
               {selectedVideo.description}
             </p>

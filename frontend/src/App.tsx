@@ -15,6 +15,8 @@ import {
   Sun,
   Moon,
   Settings,
+  Tags,
+  Clapperboard,
 } from "lucide-react";
 import { useAuth } from "./hooks/useAuth";
 import { ThemeProvider, useTheme } from "./hooks/useTheme";
@@ -101,6 +103,9 @@ import { MeetingPage } from "./features/conferencing/MeetingPage";
 import { DeviceCheckPage } from "./features/conferencing/device-check/DeviceCheckPage";
 import { FeedbackPage } from "./features/feedback/FeedbackPage";
 import { FeedbackManagement } from "./features/admin/FeedbackManagement";
+import { TopicManagement } from "./features/admin/TopicManagement";
+import { VideoReviewQueue } from "./features/admin/VideoReviewQueue";
+import { VideoTimestampEditor } from "./features/admin/VideoTimestampEditor";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Inline-dialog focus management (there is no shared Modal primitive): moves
@@ -200,6 +205,22 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
     // ...(role === 'student' ? [{ to: '/scheduler', icon: <Calendar size={18} />, label: 'Schedule' }] : []),
     ...(role === "admin"
       ? [{ to: "/admin", icon: <Shield size={18} />, label: "Admin" }]
+      : []),
+    ...(role === "admin"
+      ? [
+          {
+            to: "/admin/topics",
+            icon: <Tags size={18} />,
+            label: "Topics",
+            secondary: true,
+          },
+          {
+            to: "/admin/videos",
+            icon: <Clapperboard size={18} />,
+            label: "Video review",
+            secondary: true,
+          },
+        ]
       : []),
   ];
 
@@ -319,6 +340,28 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
               element={
                 role === "admin" ? (
                   <FeedbackManagement />
+                ) : (
+                  <Navigate to="/" />
+                )
+              }
+            />
+            <Route
+              path="/admin/topics"
+              element={
+                role === "admin" ? <TopicManagement /> : <Navigate to="/" />
+              }
+            />
+            <Route
+              path="/admin/videos"
+              element={
+                role === "admin" ? <VideoReviewQueue /> : <Navigate to="/" />
+              }
+            />
+            <Route
+              path="/admin/videos/:videoId"
+              element={
+                role === "admin" ? (
+                  <VideoTimestampEditor />
                 ) : (
                   <Navigate to="/" />
                 )

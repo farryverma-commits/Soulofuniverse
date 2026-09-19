@@ -31,6 +31,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@reticlehq/react": "3.1.0",
+    "@reticlehq/vite-plugin": "3.1.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",

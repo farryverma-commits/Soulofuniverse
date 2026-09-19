@@ -11,6 +11,7 @@ interface VideoPlayerProps {
   options: any;
   onReady?: (player: any) => void;
   resumeAt?: number;
+  exactSeek?: boolean;
   onProgress?: (info: {
     currentTime: number;
     duration: number;
@@ -18,10 +19,30 @@ interface VideoPlayerProps {
   }) => void;
 }
 
+// Curated control bar shared by every VideoPlayer instance. The Video.js
+// default bar ships extra buttons (chapters / descriptions / captions /
+// audio-track menus) that render empty for our HLS VODs and crowd the bar on
+// narrow surfaces, squeezing the playback-rate and quality menus. The quality
+// selector itself is injected by the hlsQualitySelector plugin, not listed here.
+export const PLAYER_CONTROL_BAR_CHILDREN = [
+  "playToggle",
+  "volumePanel",
+  "currentTimeDisplay",
+  "timeDivider",
+  "durationDisplay",
+  "progressControl",
+  "spacer",
+  "playbackRateMenuButton",
+  "subsCapsButton",
+  "audioTrackButton",
+  "fullscreenToggle",
+];
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   options,
   onReady,
   resumeAt,
+  exactSeek = false,
   onProgress,
 }) => {
   const videoRef = useRef<HTMLDivElement | null>(null);
@@ -33,6 +54,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
   const cleanupTapRef = useRef<(() => void) | null>(null);
   const resumeAtRef = useRef<number | undefined>(resumeAt);
+  const exactSeekRef = useRef(exactSeek);
   const onProgressRef = useRef(onProgress);
   const autoSeekedRef = useRef(false);
   const lastEmitRef = useRef(0);
@@ -40,6 +62,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     resumeAtRef.current = resumeAt;
   }, [resumeAt]);
+
+  useEffect(() => {
+    exactSeekRef.current = exactSeek;
+  }, [exactSeek]);
 
   useEffect(() => {
     onProgressRef.current = onProgress;
@@ -80,6 +106,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         videoElement,
         {
           ...options,
+          controlBar: { ...options.controlBar, children: PLAYER_CONTROL_BAR_CHILDREN },
           userActions: {
             ...options.userActions,
             click: false,
@@ -200,23 +227,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             playerEl.removeEventListener("keydown", handleKeyDown);
           };
 
-          // Resume where the user last left off, once per loaded source
+          // Resume where the user last left off, once per loaded source.
+          // exactSeek bypasses the near-start/near-end guards so topic marks
+          // (e.g. 0:03) land on the exact second.
           playerRef.current.on("loadedmetadata", () => {
             const p = playerRef.current;
             if (!p || autoSeekedRef.current) return;
             autoSeekedRef.current = true;
 
             const resume = resumeAtRef.current;
-            if (!resume || resume < 5) return;
+            if (resume === undefined || resume === null) return;
+            if (!exactSeekRef.current && resume < 5) return;
 
-            const dur = p.duration();
-            if (
-              typeof dur === "number" &&
-              Number.isFinite(dur) &&
-              dur > 0 &&
-              dur - resume < 10
-            ) {
-              return;
+            if (!exactSeekRef.current) {
+              const dur = p.duration();
+              if (
+                typeof dur === "number" &&
+                Number.isFinite(dur) &&
+                dur > 0 &&
+                dur - resume < 10
+              ) {
+                return;
+              }
             }
 
             p.currentTime(resume);

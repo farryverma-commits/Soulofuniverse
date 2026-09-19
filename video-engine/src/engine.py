@@ -158,7 +158,9 @@ def handle_video_pipeline(input_path):
         subprocess.run(cmd, check=True)
         logging.info(f"✅ Transcode complete: {video_id}")
         
-        update_supabase_status(slug, video_id, filename, "ready")
+        # Fresh transcodes land as under_review: an admin must timestamp and
+        # publish the video before it appears in the user-facing library.
+        update_supabase_status(slug, video_id, filename, "under_review")
         
         # Cleanup input file upon success
         try:
