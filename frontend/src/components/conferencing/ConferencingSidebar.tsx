@@ -3,7 +3,7 @@ import {
   useParticipants,
   useLocalParticipant,
 } from "@livekit/components-react";
-import { Hand, Users, MessageSquare, MicOff } from "lucide-react";
+import { Hand, Users, MessageSquare, MicOff, ChevronDown } from "lucide-react";
 import { PersistentChat } from "./PersistentChat";
 
 interface SidebarProps {
@@ -17,6 +17,8 @@ interface SidebarProps {
   sendChat: (msg: string) => Promise<any>;
   onClose?: () => void;
   isSending?: boolean;
+  raisedHandQueue?: { identity: string; name?: string }[];
+  turnIdentity?: string | null;
 }
 
 export const ConferencingSidebar: React.FC<SidebarProps> = ({
@@ -30,12 +32,17 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
   sendChat,
   onClose,
   isSending,
+  raisedHandQueue,
+  turnIdentity,
 }) => {
   const isHost = isMentor || isAdmin;
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const [unreadChat, setUnreadChat] = useState(0);
   const prevMessageCountRef = useRef(chatMessages.length);
+  // Expandable panels: queue open by default, full roster closed by default.
+  const [queueOpen, setQueueOpen] = useState(true);
+  const [allOpen, setAllOpen] = useState(false);
 
   // Fetch camera tracks to provide explicit trackRef to mini-tiles
   // const cameraTracks = useTracks([
@@ -81,8 +88,10 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
     return map;
   }, [participants]);
 
-  // 1. Hand Raised Logic
-  const raisedHandParticipants = useMemo(
+  // 1. Hand Raised Logic — single source of truth lives in MeetingView
+  // (passed as props so sidebar + turn banner can't drift apart); falls back
+  // to local computation when rendered without them.
+  const localRaisedHandParticipants = useMemo(
     () =>
       participants
         .filter((p) => participantMeta.get(p.identity)?.handRaised)
@@ -93,6 +102,19 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
         }),
     [participants, participantMeta],
   );
+  const raisedHandParticipants = useMemo(() => {
+    if (raisedHandQueue) {
+      const byIdentity = new Map(participants.map((p) => [p.identity, p]));
+      return raisedHandQueue
+        .map((q) => byIdentity.get(q.identity))
+        .filter((p): p is (typeof participants)[number] => !!p);
+    }
+    return localRaisedHandParticipants;
+  }, [raisedHandQueue, participants, localRaisedHandParticipants]);
+  const currentTurnIdentity =
+    turnIdentity !== undefined
+      ? turnIdentity
+      : (raisedHandParticipants[0]?.identity ?? null);
 
   const toggleHand = async () => {
     if (!localParticipant) return;
@@ -175,57 +197,91 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
               {localMetadata.handRaised ? 'Lower Hand' : 'Raise Hand'}
             </button> */}
 
-            {raisedHandParticipants.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                  Hand Raised Queue
-                </h4>
-                {raisedHandParticipants.map((p, i) => (
-                  <div
-                    key={p.identity || i}
-                    className="flex items-center justify-between p-3 bg-yellow-500/10 rounded-xl border border-yellow-500/40 shadow-lg"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center text-[10px] font-black text-white shrink-0">
-                        {i + 1}
-                      </div>
-                      <span className="text-sm text-white font-black leading-tight truncate">
-                        {p.name || p.identity || "Anonymous"}
-                      </span>
-                    </div>
-                    {isHost && (
-                      <button
-                        onClick={async () => {
-                          const encoder = new TextEncoder();
-                          const data = encoder.encode(
-                            JSON.stringify({
-                              action: "LOWER_HAND",
-                              target: p.identity,
-                            }),
-                          );
-                          await localParticipant?.publishData(data, {
-                            reliable: true,
-                          });
-                        }}
-                        className="px-3 py-1.5 bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30 text-[9px] font-bold rounded-lg shrink-0 ml-2 transition-colors"
-                      >
-                        Lower
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="space-y-3">
+              <PanelHeader
+                open={queueOpen}
+                onToggle={() => setQueueOpen((o) => !o)}
+                label="Hand Raised Queue"
+                count={raisedHandParticipants.length}
+                controlsId="hand-raised-queue"
+              />
+              {queueOpen && (
+                <div id="hand-raised-queue" className="space-y-3">
+                  {raisedHandParticipants.length === 0 ? (
+                    <p className="text-xs text-gray-500 px-2">
+                      No hands raised. Students appear here in order.
+                    </p>
+                  ) : (
+                    raisedHandParticipants.map((p, i) => {
+                      const isTurn =
+                        currentTurnIdentity != null &&
+                        p.identity === currentTurnIdentity;
+                      return (
+                        <div
+                          key={p.identity || i}
+                          className={`flex items-center justify-between p-3 rounded-xl border shadow-lg ${
+                            isTurn
+                              ? "bg-yellow-500/15 border-primary shadow-[0_0_15px_rgba(212,168,83,0.25)]"
+                              : "bg-yellow-500/10 border-yellow-500/40"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center text-[10px] font-black text-white shrink-0">
+                              {i + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-sm text-white font-black leading-tight truncate block">
+                                {p.name || p.identity || "Anonymous"}
+                              </span>
+                              {isTurn && (
+                                <span className="text-[9px] font-black uppercase tracking-widest text-primary">
+                                  Current turn
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {isHost && (
+                            <button
+                              onClick={async () => {
+                                const encoder = new TextEncoder();
+                                const data = encoder.encode(
+                                  JSON.stringify({
+                                    action: "LOWER_HAND",
+                                    target: p.identity,
+                                  }),
+                                );
+                                await localParticipant?.publishData(data, {
+                                  reliable: true,
+                                });
+                              }}
+                              className="px-3 py-1.5 bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30 text-[9px] font-bold rounded-lg shrink-0 ml-2 transition-colors"
+                            >
+                              Lower
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between px-2">
-                <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                  All Participants ({participants.length})
-                </h4>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <PanelHeader
+                    open={allOpen}
+                    onToggle={() => setAllOpen((o) => !o)}
+                    label="All Participants"
+                    count={participants.length}
+                    controlsId="all-participants"
+                  />
+                </div>
                 {isHost && onMuteAll && (
                   <button
                     onClick={onMuteAll}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-all"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-all shrink-0"
                   >
                     <MicOff className="w-3 h-3" />
                     <span className="text-[9px] font-black uppercase">
@@ -234,7 +290,8 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                   </button>
                 )}
               </div>
-              <div className="space-y-1">
+              {allOpen && (
+              <div id="all-participants" className="space-y-1">
                 {(() => {
                   const sortedParticipants = [...participants].sort((a, b) => {
                     if (a.isMicrophoneEnabled !== b.isMicrophoneEnabled) {
@@ -312,6 +369,7 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
                 });
               })()}
               </div>
+              )}
             </div>
           </div>
         )}
@@ -320,6 +378,36 @@ export const ConferencingSidebar: React.FC<SidebarProps> = ({
     </div>
   );
 };
+
+function PanelHeader({
+  open,
+  onToggle,
+  label,
+  count,
+  controlsId,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  label: string;
+  count: number;
+  controlsId: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={controlsId}
+      className="w-full flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
+    >
+      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+        {label} ({count})
+      </span>
+      <ChevronDown
+        className={`w-4 h-4 text-gray-500 transition-transform ${open ? "" : "-rotate-90"}`}
+      />
+    </button>
+  );
+}
 
 function TabButton({ active, onClick, icon, label, badge, notification }: any) {
   return (

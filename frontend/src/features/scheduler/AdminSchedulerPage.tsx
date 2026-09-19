@@ -282,7 +282,7 @@ export const AdminSchedulerPage: React.FC = () => {
 
   const handleUpdateGroupStatus = async (
     id: string,
-    action: "start" | "end",
+    action: "start" | "end" | "cancel" | "delete_session",
   ) => {
     if (action === "start") setStartingSessionId(id);
     const {
@@ -304,15 +304,34 @@ export const AdminSchedulerPage: React.FC = () => {
       setSessionError(null);
     } else {
       const err = await response.json();
-      setSessionError(err.error || "Session action failed. Please try again.");
+      setSessionError(err.message || err.error || "Session action failed. Please try again.");
     }
     if (action === "start") setStartingSessionId(null);
   };
 
+  const handleCancelSession = async (id: string, title: string) => {
+    if (
+      !window.confirm(
+        `Cancel "${title}"? It will be hidden from students. You can still delete it afterwards.`,
+      )
+    ) {
+      return;
+    }
+    await handleUpdateGroupStatus(id, "cancel");
+  };
+
+  const handleDeleteSession = async (id: string, title: string) => {
+    if (
+      !window.confirm(
+        `Permanently delete "${title}"? This removes the session and its chats, logs and recordings. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    await handleUpdateGroupStatus(id, "delete_session");
+  };
+
   const liveSessions = groupSessions.filter((s) => s.status === "live");
-  const upcomingSessions = groupSessions.filter(
-    (s) => s.status === "scheduled",
-  );
   const totalSlots = availability.length;
   const visibleSessions = showAllSessions
     ? groupSessions
@@ -440,6 +459,12 @@ export const AdminSchedulerPage: React.FC = () => {
                         handleUpdateGroupStatus(session.id, "start")
                       }
                       onEnd={() => handleUpdateGroupStatus(session.id, "end")}
+                      onCancel={() =>
+                        handleCancelSession(session.id, session.title)
+                      }
+                      onDelete={() =>
+                        handleDeleteSession(session.id, session.title)
+                      }
                       onJoin={() =>
                         window.open(`/meeting/${session.id}`, "_blank")
                       }
@@ -940,18 +965,23 @@ function SessionRow({
   isStarting,
   onStart,
   onEnd,
+  onCancel,
+  onDelete,
   onJoin,
 }: {
   session: any;
   isStarting: boolean;
   onStart: () => void;
   onEnd: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
   onJoin: () => void;
 }) {
   const startDate = new Date(session.scheduled_start_time);
   const endDate = new Date(session.scheduled_end_time);
   const isLive = session.status === "live";
   const isPast = session.status === "completed";
+  const isCancelled = session.status === "cancelled";
 
   const getStatusBadge = () => {
     if (isLive)
@@ -966,6 +996,12 @@ function SessionRow({
           Done
         </span>
       );
+    if (isCancelled)
+      return (
+        <span className="text-[9px] font-bold text-error bg-error/10 px-2.5 py-1 rounded-full">
+          Cancelled
+        </span>
+      );
     return (
       <span className="text-[9px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full">
         Upcoming
@@ -976,12 +1012,41 @@ function SessionRow({
   const getAction = () => {
     if (session.status === "scheduled") {
       return (
+        <div className="flex gap-1 justify-end">
+          <button
+            onClick={onStart}
+            disabled={isStarting}
+            className="btn-primary text-[10px] py-1.5 px-3"
+          >
+            {isStarting ? <OrbitalLoader variant="button" /> : "Start"}
+          </button>
+          <button
+            onClick={onCancel}
+            title="Cancel session (hidden from students)"
+            className="btn-secondary text-[10px] py-1.5 px-2"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onDelete}
+            title="Delete session permanently"
+            aria-label={`Delete ${session.title}`}
+            className="btn-secondary text-[10px] py-1.5 px-2 text-error hover:text-error"
+          >
+            Delete
+          </button>
+        </div>
+      );
+    }
+    if (isCancelled) {
+      return (
         <button
-          onClick={onStart}
-          disabled={isStarting}
-          className="btn-primary text-[10px] py-1.5 px-3"
+          onClick={onDelete}
+          title="Delete session permanently"
+          aria-label={`Delete ${session.title}`}
+          className="btn-secondary text-[10px] py-1.5 px-2 text-error hover:text-error"
         >
-          {isStarting ? <OrbitalLoader variant="button" /> : "Start"}
+          Delete
         </button>
       );
     }

@@ -220,6 +220,12 @@ function DashboardLayout({ user, role }: { user: any; role: any }) {
             label: "Video review",
             secondary: true,
           },
+          {
+            to: "/admin/feedback",
+            icon: <MessageSquare size={18} />,
+            label: "Feedback inbox",
+            secondary: true,
+          },
         ]
       : []),
   ];

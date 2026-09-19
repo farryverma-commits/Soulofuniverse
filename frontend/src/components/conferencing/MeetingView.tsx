@@ -818,6 +818,19 @@ function MyVideoConference({
   const [sidebarTab, setSidebarTab] = useState<"chat" | "participants">("chat");
   const [isRecording, setIsRecording] = useState(false);
   const [egressId, setEgressId] = useState<string | null>(null);
+  // Recording lifecycle phase — the button shows Starting progress until the
+  // recorder is confirmed active (DB row 'recording' via webhook
+  // egress_started/updated), and the timer only runs in 'recording'. This
+  // mirrors the LiveKit EgressStatus: EGRESS_STARTING (0) -> EGRESS_ACTIVE
+  // (1); EGRESS_FAILED (4) / ABORTED (5) / LIMIT_REACHED (6) land in 'failed'
+  // with the server message surfaced as a toast.
+  const [recordingPhase, setRecordingPhase] = useState<
+    "idle" | "starting" | "recording" | "failed"
+  >("idle");
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const recordingStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
     null,
   );
@@ -888,15 +901,42 @@ function MyVideoConference({
     chatMessages.length,
   );
 
+  // Watchdog: if the recorder never confirms (webhook lost, Chrome never
+  // opened), fail out of the Starting spinner instead of hanging forever.
+  // Declared before syncRecordingFromDb (which arms it) via a ref so the
+  // callback always sees the latest sync without a dependency cycle.
+  const syncRecordingFromDbRef = useRef<() => Promise<void>>(async () => {});
+  const armRecordingStartTimeout = useCallback(() => {
+    if (recordingStartTimeoutRef.current) return;
+    recordingStartTimeoutRef.current = setTimeout(() => {
+      recordingStartTimeoutRef.current = null;
+      setRecordingPhase((prev) => {
+        if (prev !== "starting") return prev;
+        // Re-sync once — the row may have flipped to recording/failed while
+        // the timer was pending (sync is skipped while toggling, but the
+        // toggle has finished by now).
+        void syncRecordingFromDbRef.current();
+        return prev;
+      });
+    }, 45000);
+  }, []);
+
   // Single source of truth for recording state: the active session_recordings
   // row. Hosts re-sync from it on events and poll mismatches so the mentor and
   // admin co-host never drift apart — broadcasts only ever act as triggers,
   // never as state (they are client-forgeable; the DB row is not).
+  //
+  // The row status drives the phase machine:
+  //   'starting'  -> phase 'starting' (spinner, no timer — Chrome still
+  //                  spinning up, egress_started not yet received)
+  //   'recording' -> phase 'recording' (REC chip + timer from server started_at)
+  //   no row + error_message row -> phase 'failed' (toast with server message)
+  //   no row at all -> phase 'idle'
   const syncRecordingFromDb = useCallback(async () => {
     if (!isHost || isRecordingTogglingRef.current) return;
     const { data } = await supabase
       .from("session_recordings")
-      .select("egress_id, status, started_at")
+      .select("egress_id, status, started_at, error_message")
       .eq("session_id", sessionId)
       .in("status", ["starting", "recording"])
       .order("created_at", { ascending: false })
@@ -904,16 +944,64 @@ function MyVideoConference({
       .maybeSingle();
 
     if (data) {
-      setIsRecording(true);
-      setEgressId(data.egress_id);
-      // started_at is stamped server-side — both hosts' timers stay in sync.
-      setRecordingStartTime(new Date(data.started_at).getTime());
-    } else {
-      setIsRecording(false);
-      setEgressId(null);
-      setRecordingStartTime(null);
+      if (data.status === "recording") {
+        if (recordingStartTimeoutRef.current) {
+          clearTimeout(recordingStartTimeoutRef.current);
+          recordingStartTimeoutRef.current = null;
+        }
+        setIsRecording(true);
+        setRecordingPhase("recording");
+        setRecordingError(null);
+        setEgressId(data.egress_id);
+        // started_at is stamped server-side — both hosts' timers stay in sync.
+        setRecordingStartTime(new Date(data.started_at).getTime());
+      } else {
+        // Still 'starting' — keep the Starting progress visible, no timer.
+        setIsRecording(false);
+        setRecordingPhase((prev) => (prev === "failed" ? prev : "starting"));
+        setEgressId(data.egress_id);
+        setRecordingStartTime(null);
+        armRecordingStartTimeout();
+      }
+      return;
     }
-  }, [isHost, sessionId]);
+
+    // No active row — check for a failed start to surface the server message.
+    const { data: failed } = await supabase
+      .from("session_recordings")
+      .select("error_message, created_at")
+      .eq("session_id", sessionId)
+      .eq("status", "failed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recordingStartTimeoutRef.current) {
+      clearTimeout(recordingStartTimeoutRef.current);
+      recordingStartTimeoutRef.current = null;
+    }
+    setIsRecording(false);
+    setEgressId(null);
+    setRecordingStartTime(null);
+    if (failed) {
+      setRecordingPhase("failed");
+      setRecordingError(
+        failed.error_message || "Recorder failed to start. Please try again.",
+      );
+    } else {
+      setRecordingPhase("idle");
+      setRecordingError(null);
+    }
+  }, [isHost, sessionId, armRecordingStartTimeout]);
+  syncRecordingFromDbRef.current = syncRecordingFromDb;
+
+  useEffect(() => {
+    return () => {
+      if (recordingStartTimeoutRef.current) {
+        clearTimeout(recordingStartTimeoutRef.current);
+        recordingStartTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Restore recording state from DB on mount (handles page refresh
   // mid-recording). Hosts only — mentor sees own sessions, admins see all
@@ -1030,6 +1118,32 @@ function MyVideoConference({
   const isHandRaised = !!parsedMetadata.handRaised;
 
   const allParticipants = useParticipants();
+
+  // Shared raised-hand queue — single source of truth for the sidebar panels
+  // and the "It's your turn" banner, so they can never drift apart. Order is
+  // by raisedAt (earliest first); index 0 holds the turn.
+  const raisedHandQueue = useMemo(() => {
+    const withMeta = allParticipants
+      .map((p) => {
+        try {
+          return { p, meta: JSON.parse(p.metadata || "{}") };
+        } catch {
+          return { p, meta: {} };
+        }
+      })
+      .filter(({ meta }) => !!meta.handRaised)
+      .sort((a, b) => (a.meta.raisedAt || 0) - (b.meta.raisedAt || 0));
+    return withMeta.map(({ p }) => ({
+      identity: p.identity,
+      name: p.name,
+    }));
+  }, [allParticipants]);
+  const turnIdentity = raisedHandQueue[0]?.identity ?? null;
+  const isMyTurn =
+    !isHost &&
+    turnIdentity != null &&
+    localParticipant != null &&
+    turnIdentity === localParticipant.identity;
 
   const mentorPresent = useMemo(() => {
     if (!allParticipants?.length || !mentorId) return true;
@@ -1285,9 +1399,17 @@ function MyVideoConference({
 
   const handleToggleRecording = async () => {
     if (!isHost || isRecordingTogglingRef.current) return;
-    const stopping = isRecording;
+    const stopping = recordingPhase === "recording" || isRecording;
     setIsRecordingToggling(true);
     isRecordingTogglingRef.current = true;
+    if (!stopping) {
+      // Optimistic Starting UI — the spinner shows until the recorder
+      // confirms (DB row 'recording'); the timer starts only on confirm.
+      setRecordingPhase("starting");
+      setRecordingError(null);
+      setIsRecording(false);
+      setRecordingStartTime(null);
+    }
     try {
       const {
         data: { session: authSession },
@@ -1311,24 +1433,74 @@ function MyVideoConference({
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // start_recording failure paths return a typed code + human message
+        // (EGRESS_START_FAILED: Chrome couldn't launch, limit reached…).
+        if (!stopping && err?.error === "EGRESS_START_FAILED") {
+          setRecordingPhase("failed");
+          setRecordingError(
+            typeof err?.message === "string"
+              ? err.message
+              : "Recorder couldn't start. Please try again.",
+          );
+          toast.error(
+            typeof err?.message === "string"
+              ? err.message
+              : "Recorder couldn't start. Please try again.",
+          );
+          return;
+        }
         const code = typeof err?.error === "string" ? err.error : null;
         throw new Error(code || "Something went wrong. Please try again.");
       }
       const data = await res.json().catch(() => ({}));
       if (stopping) {
+        if (recordingStartTimeoutRef.current) {
+          clearTimeout(recordingStartTimeoutRef.current);
+          recordingStartTimeoutRef.current = null;
+        }
         setIsRecording(false);
+        setRecordingPhase("idle");
+        setRecordingError(null);
         setEgressId(null);
         setRecordingStartTime(null);
         toast.success("Recording stopped");
       } else {
-        setIsRecording(true);
+        // EGRESS_ACTIVE (1): recorder already capturing — confirm now.
+        // EGRESS_STARTING (0, the normal case): stay in Starting until the
+        // webhook flips the row to 'recording'. The timer starts on confirm,
+        // never on click.
         setEgressId(data.egress_id ?? null);
-        setRecordingStartTime(Date.now());
-        toast.success("Recording started");
+        const sdkStatus = data.egress_status;
+        if (sdkStatus === 1) {
+          if (recordingStartTimeoutRef.current) {
+            clearTimeout(recordingStartTimeoutRef.current);
+            recordingStartTimeoutRef.current = null;
+          }
+          setIsRecording(true);
+          setRecordingPhase("recording");
+          setRecordingStartTime(Date.now());
+          toast.success("Recording started");
+        } else if (
+          sdkStatus === 4 || sdkStatus === 5 || sdkStatus === 6
+        ) {
+          const terminalMsg =
+            sdkStatus === 6
+              ? "Recording limit reached for this project."
+              : "Recorder couldn't start. Please try again.";
+          setRecordingPhase("failed");
+          setRecordingError(terminalMsg);
+          toast.error(terminalMsg);
+          return;
+        } else {
+          setRecordingPhase("starting");
+          armRecordingStartTimeout();
+        }
       }
 
       // Broadcast to participants (instant REC chip) and mirror the flag in
       // the host's metadata so the 3s poll can restore it for late joiners.
+      // On start the broadcast goes out while still 'starting' — the host's
+      // own timer still waits for the DB row to flip to 'recording'.
       try {
         const encoder = new TextEncoder();
         await localParticipant?.publishData(
@@ -1349,6 +1521,12 @@ function MyVideoConference({
       }
     } catch (err) {
       console.error("Recording toggle failed:", err);
+      if (!stopping) {
+        // Generic (non-typed) start failure — drop back to idle with a toast.
+        // The failed-row sync on next poll may upgrade this to 'failed' with
+        // the server message.
+        setRecordingPhase("idle");
+      }
       toast.error(
         err instanceof Error ? err.message : "Recording toggle failed",
       );
@@ -1684,6 +1862,27 @@ function MyVideoConference({
                     </span>
                   </div>
                 )}
+                {/* Turn banner — only the student at the head of the raised-hand
+                    queue sees this. Derived (never stored), so it clears the
+                    moment the hand is lowered or someone else takes the turn. */}
+                {isMyTurn && sessionStatus !== "ended" && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2.5 rounded-full border border-primary/40 bg-black/80 px-4 py-2 shadow-[0_0_20px_rgba(212,168,83,0.35)] backdrop-blur-md animate-fade-in"
+                  >
+                    <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
+                    </span>
+                    <span className="text-xs font-black tracking-wide text-white whitespace-nowrap">
+                      It&apos;s your turn.
+                    </span>
+                    <span className="hidden sm:inline text-[10px] font-medium text-white/60 whitespace-nowrap">
+                      Unmute and speak
+                    </span>
+                  </div>
+                )}
                 {/* Host Reconnecting fallback — matches Zoom/Meet frozen-tile
                     pattern. Covers both windows: host fully removed from the
                     room (no track, identity gone) AND host dropped but still
@@ -1743,7 +1942,7 @@ function MyVideoConference({
 
           {/* Conference Control Bar */}
           {isMobile && !showSidebar ? (
-            <div className="fixed bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-1.5 sm:gap-2 max-w-[96vw] sm:max-w-[min(96vw,420px)] w-auto justify-center overflow-x-auto snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [scrollbar-width:none] animate-in slide-in-from-bottom-8 duration-500">
+            <div className="fixed bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full px-3 py-2 sm:px-3 sm:py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-1.5 sm:gap-2 max-w-[96vw] sm:max-w-[min(96vw,420px)] w-auto justify-start sm:justify-center overflow-x-auto overflow-y-visible snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [scrollbar-width:none] animate-in slide-in-from-bottom-8 duration-500">
               {connState === "reconnecting" && (
                 <span className="shrink-0 snap-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500 text-black text-[10px] font-black tracking-widest uppercase">
                   <Loader2 className="w-3 h-3 animate-spin" /> Reconnecting
@@ -1782,30 +1981,32 @@ function MyVideoConference({
                   />
                 </span>
               )}
-              {isHost && (
-                <span className="snap-start shrink-0">
-                  <ControlActionButton
-                    onClick={handleMuteAll}
-                    aria-label="Mute all participants"
-                    icon={<MicOff className="w-5 h-5 text-red-400" />}
-                    minimal={true}
-                  />
-                </span>
-              )}
+              {/* Mute All lives in the Users panel sidebar only — kept out of
+                  the pill so host controls stay one-tap reachable. */}
               {isHost && (
                 <span className="snap-start shrink-0">
                   <ControlActionButton
                     onClick={handleToggleRecording}
-                    disabled={isRecordingToggling}
+                    disabled={
+                      isRecordingToggling || recordingPhase === "starting"
+                    }
                     aria-label={
-                      isRecording
-                        ? `Stop recording (${recordingDuration})`
-                        : "Start recording"
+                      recordingPhase === "starting"
+                        ? "Starting recording…"
+                        : isRecording
+                          ? `Stop recording (${recordingDuration})`
+                          : recordingPhase === "failed"
+                            ? `Recording failed to start — tap to retry${recordingError ? `. ${recordingError}` : ""}`
+                            : "Start recording"
                     }
                     icon={
-                      <CircleDot
-                        className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : "text-white"}`}
-                      />
+                      recordingPhase === "starting" ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-white" />
+                      ) : (
+                        <CircleDot
+                          className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : recordingPhase === "failed" ? "text-red-400" : "text-white"}`}
+                        />
+                      )
                     }
                     isActive={isRecording}
                     minimal={true}
@@ -2035,14 +2236,26 @@ function MyVideoConference({
                   {isHost && (
                     <ControlActionButton
                       onClick={handleToggleRecording}
-                      disabled={isRecordingToggling}
+                      disabled={
+                        isRecordingToggling || recordingPhase === "starting"
+                      }
                       icon={
-                        <CircleDot
-                          className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : "text-gray-100"}`}
-                        />
+                        recordingPhase === "starting" ? (
+                          <Loader2 className="w-5 h-5 animate-spin text-gray-100" />
+                        ) : (
+                          <CircleDot
+                            className={`w-5 h-5 ${isRecording ? "text-red-500 animate-pulse" : recordingPhase === "failed" ? "text-red-400" : "text-gray-100"}`}
+                          />
+                        )
                       }
                       label={
-                        isRecording ? `Rec ${recordingDuration}` : "Record"
+                        recordingPhase === "starting"
+                          ? "Starting…"
+                          : isRecording
+                            ? `Rec ${recordingDuration}`
+                            : recordingPhase === "failed"
+                              ? "Retry Rec"
+                              : "Record"
                       }
                       isActive={isRecording}
                       activeColor="text-red-500"
@@ -2121,6 +2334,39 @@ function MyVideoConference({
             </div>
           )}
 
+          {/* Recording failed banner — host-only, with retry + dismiss. The
+              toast on failure is transient; this persists until resolved. */}
+          {isHost &&
+            recordingPhase === "failed" &&
+            sessionStatus !== "ended" && (
+              <div
+                role="alert"
+                className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex max-w-[92vw] items-center gap-3 rounded-2xl border border-red-500/30 bg-black/85 px-4 py-2.5 shadow-lg backdrop-blur-md animate-fade-in"
+              >
+                <CircleDot className="w-4 h-4 shrink-0 text-red-400" />
+                <p className="min-w-0 flex-1 text-xs font-medium text-white/90">
+                  {recordingError ||
+                    "Recorder couldn't start. Please try again."}
+                </p>
+                <button
+                  onClick={handleToggleRecording}
+                  className="shrink-0 rounded-lg bg-red-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-red-300 hover:bg-red-500/30 transition-colors"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() => {
+                    setRecordingPhase("idle");
+                    setRecordingError(null);
+                  }}
+                  aria-label="Dismiss recording error"
+                  className="shrink-0 rounded-lg p-1 text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
           {/* Session Ended Overlay */}
           {sessionStatus === "ended" && (
             <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-500">
@@ -2165,6 +2411,8 @@ function MyVideoConference({
             sendChat={sendChat}
             onClose={() => setShowSidebar(false)}
             isSending={isSending}
+            raisedHandQueue={raisedHandQueue}
+            turnIdentity={turnIdentity}
           />
         )}
       </div>
@@ -2310,7 +2558,7 @@ function MediaControl({ source, onIcon, offIcon, minimal }: any) {
     return (
       <button
         onClick={handleToggle}
-        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
+        className={`w-11 h-11 shrink-0 rounded-full flex items-center justify-center overflow-visible transition-all active:scale-90 shadow-lg ${
           enabled
             ? "bg-white/10 hover:bg-white/20"
             : "bg-white text-gray-900 border border-white"
@@ -2365,7 +2613,7 @@ function ControlActionButton({
         onClick={onClick}
         disabled={disabled}
         aria-label={ariaLabel || label}
-        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
+        className={`w-11 h-11 shrink-0 rounded-full flex items-center justify-center overflow-visible transition-all active:scale-90 shadow-lg ${
           isActive
             ? "bg-white text-gray-900 border border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]"
             : "bg-white/10 hover:bg-white/20 text-white"

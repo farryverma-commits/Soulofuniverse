@@ -360,6 +360,114 @@ Deno.serve(async (req: Request) => {
       });
 
       console.log("Session ended:", session_id);
+    } else if (action === "cancel") {
+      // Host cancels a scheduled session (accidental create, no longer
+      // happening). Cancelled rows vanish from every student surface (all
+      // student queries filter status IN ('scheduled','live')) but stay
+      // visible to the host until hard-deleted via delete_session.
+      if (session.status !== "scheduled") {
+        throw new Error("Only scheduled sessions can be cancelled");
+      }
+
+      // Best-effort room cleanup (a scheduled session shouldn't have a room,
+      // but a retried start may have left one behind).
+      if (livekitUrl && livekitApiKey && livekitApiSecret) {
+        try {
+          const roomService = new RoomServiceClient(
+            livekitUrl,
+            livekitApiKey,
+            livekitApiSecret,
+          );
+          await roomService.deleteRoom(`session_${session_id}`);
+        } catch (err) {
+          console.error(`Failed to delete LiveKit room ${session_id}:`, err);
+        }
+      }
+
+      await supabaseAdmin
+        .from("group_sessions")
+        .update({ status: "cancelled" })
+        .eq("id", session_id);
+
+      await supabaseAdmin
+        .from("session_participants")
+        .update({ status: "rejected" })
+        .eq("session_id", session_id)
+        .eq("status", "pending");
+
+      await supabaseAdmin.from("meeting_logs").insert({
+        session_id,
+        event_type: "session_cancelled",
+        payload: { user_id: user.id },
+      });
+
+      console.log("Session cancelled:", session_id);
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } else if (action === "delete_session") {
+      // Host hard-deletes an accidental create. Allowed from scheduled or
+      // cancelled only — never live/completed (those carry history). Children
+      // (participants, chats, logs, recordings) CASCADE in the DB.
+      if (session.status !== "scheduled" && session.status !== "cancelled") {
+        throw new Error("Only scheduled or cancelled sessions can be deleted");
+      }
+
+      if (livekitUrl && livekitApiKey && livekitApiSecret) {
+        try {
+          const egressClient = new EgressClient(
+            livekitUrl,
+            livekitApiKey,
+            livekitApiSecret,
+          );
+          const { data: activeRecordings } = await supabaseAdmin
+            .from("session_recordings")
+            .select("egress_id")
+            .eq("session_id", session_id)
+            .in("status", ["starting", "recording"]);
+          if (activeRecordings && activeRecordings.length > 0) {
+            for (const rec of activeRecordings) {
+              try {
+                await egressClient.stopEgress(rec.egress_id);
+              } catch (stopErr) {
+                console.error(
+                  `Failed to stop recording ${rec.egress_id}:`,
+                  stopErr,
+                );
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Failed to create EgressClient for cleanup:", err);
+        }
+        try {
+          const roomService = new RoomServiceClient(
+            livekitUrl,
+            livekitApiKey,
+            livekitApiSecret,
+          );
+          await roomService.deleteRoom(`session_${session_id}`);
+        } catch (err) {
+          console.error(`Failed to delete LiveKit room ${session_id}:`, err);
+        }
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("group_sessions")
+        .delete()
+        .eq("id", session_id);
+
+      if (deleteError) {
+        console.error("Failed to delete session:", deleteError);
+        throw new Error("Failed to delete session");
+      }
+
+      console.log("Session deleted:", session_id);
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     } else if (action === "start_recording") {
       if (!livekitUrl || !livekitApiKey || !livekitApiSecret) {
         throw new Error("LiveKit configuration missing");
@@ -447,18 +555,72 @@ Deno.serve(async (req: Request) => {
           throw new Error("No egress ID returned from LiveKit");
         }
 
-        // Update recording with egress_id and file path
-        await supabaseAdmin
-          .from("session_recordings")
-          .update({
-            egress_id: newEgressId,
-            file_path: filePath,
-            file_url: recordingBaseUrl
-              ? `${recordingBaseUrl}/${session_id}/${recording.id}.mp4`
-              : null,
-            status: "recording",
-          })
-          .eq("id", recording.id);
+        // Surface the SDK lifecycle status so the client can distinguish
+        // EGRESS_STARTING (still spinning up Chrome) from EGRESS_ACTIVE
+        // (actually recording) instead of assuming success optimistically.
+        // EgressStatus: 0 STARTING, 1 ACTIVE, 2 ENDING, 3 COMPLETE,
+        // 4 FAILED, 5 ABORTED, 6 LIMIT_REACHED.
+        const egressStatus = (egressInfo as { status?: number })?.status;
+
+        // A fresh start returns EGRESS_STARTING (0) — Chrome still spinning
+        // up. Don't mark the row 'recording' yet: the webhook's
+        // egress_started event is the confirmed-active signal, and the client
+        // shows Starting progress until then. If the SDK already reports
+        // EGRESS_ACTIVE (1), mark it immediately.
+        // Terminal-at-birth (FAILED/ABORTED/LIMIT_REACHED) is surfaced with a
+        // typed code so the UI can show a proper message, not a silent spinner.
+        if (egressStatus === 1) {
+          await supabaseAdmin
+            .from("session_recordings")
+            .update({
+              egress_id: newEgressId,
+              file_path: filePath,
+              file_url: recordingBaseUrl
+                ? `${recordingBaseUrl}/${session_id}/${recording.id}.mp4`
+                : null,
+              status: "recording",
+            })
+            .eq("id", recording.id);
+        } else if (
+          egressStatus === 4 || egressStatus === 5 || egressStatus === 6
+        ) {
+          const terminalErrors: Record<number, string> = {
+            4: "Recorder failed to start",
+            5: "Recorder aborted before it could start",
+            6: "Recording limit reached for this project",
+          };
+          const terminalMsg = terminalErrors[egressStatus] ??
+            "Recorder failed to start";
+          await supabaseAdmin
+            .from("session_recordings")
+            .update({
+              egress_id: newEgressId,
+              status: "failed",
+              error_message: terminalMsg,
+            })
+            .eq("id", recording.id);
+          return new Response(
+            JSON.stringify({
+              error: "EGRESS_START_FAILED",
+              message: terminalMsg,
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        } else {
+          await supabaseAdmin
+            .from("session_recordings")
+            .update({
+              egress_id: newEgressId,
+              file_path: filePath,
+              file_url: recordingBaseUrl
+                ? `${recordingBaseUrl}/${session_id}/${recording.id}.mp4`
+                : null,
+            })
+            .eq("id", recording.id);
+        }
 
         await supabaseAdmin.from("meeting_logs").insert({
           session_id,
@@ -467,17 +629,19 @@ Deno.serve(async (req: Request) => {
             user_id: user.id,
             egress_id: newEgressId,
             file_path: filePath,
+            egress_status: egressStatus ?? null,
           },
         });
 
         console.log(
-          `Recording started: egress=${newEgressId}, path=${filePath}`,
+          `Recording started: egress=${newEgressId}, status=${egressStatus}, path=${filePath}`,
         );
 
         return new Response(
           JSON.stringify({
             success: true,
             egress_id: newEgressId,
+            egress_status: egressStatus ?? 0,
           }),
           {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -485,19 +649,26 @@ Deno.serve(async (req: Request) => {
         );
       } catch (egressErr) {
         console.error("Failed to start egress:", egressErr);
+        const egressErrMsg = egressErr instanceof Error
+          ? egressErr.message
+          : "Failed to start egress";
         await supabaseAdmin
           .from("session_recordings")
           .update({
             status: "failed",
-            error_message: egressErr instanceof Error
-              ? egressErr.message
-              : "Failed to start egress",
+            error_message: egressErrMsg,
           })
           .eq("id", recording.id);
-        throw new Error(
-          `Failed to start recording: ${
-            egressErr instanceof Error ? egressErr.message : String(egressErr)
-          }`,
+        return new Response(
+          JSON.stringify({
+            error: "EGRESS_START_FAILED",
+            message:
+              `Recorder couldn't start: ${egressErrMsg}. Check that the VC server can launch Chrome, then try again.`,
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
     } else if (action === "stop_recording") {

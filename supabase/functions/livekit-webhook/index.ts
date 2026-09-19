@@ -88,40 +88,56 @@ Deno.serve(async (req: Request) => {
             updateData.status = "recording";
             break;
 
-          // case "egress_completed": {
-          //   updateData.status = "completed";
-          //   updateData.completed_at = new Date().toISOString();
+          case "egress_updated":
+            // Heartbeat during an active egress. If the row is still
+            // 'starting' (the host's start call returned EGRESS_STARTING and
+            // no egress_started arrived), treat the heartbeat as proof the
+            // recorder is alive and promote it — the host's Starting spinner
+            // resolves from the DB row.
+            updateData.status = "recording";
+            break;
 
-          //   const recordingBaseUrl = Deno.env.get("RECORDING_BASE_URL") ?? "";
+          case "egress_completed": {
+            updateData.status = "completed";
+            updateData.completed_at = new Date().toISOString();
 
-          //   // Extract file info from egress results
-          //   const fileResults = egressInfo?.fileResults ||
-          //     egressInfo?.file_results;
-          //   if (fileResults && fileResults.length > 0) {
-          //     const fileResult = fileResults[0];
-          //     const filePath = fileResult?.filePath || fileResult?.file_path ||
-          //       fileResult?.location;
-          //     if (filePath) {
-          //       updateData.file_path = filePath;
-          //       if (recordingBaseUrl) {
-          //         const relativePath = filePath.replace(/^\/?recordings\//, "");
-          //         updateData.file_url = `${recordingBaseUrl}/${relativePath}`;
-          //       }
-          //     }
-          //     const fileSize = fileResult?.size || fileResult?.fileSize;
-          //     if (fileSize) updateData.file_size = fileSize;
-          //   }
+            const recordingBaseUrl = Deno.env.get("RECORDING_BASE_URL") ?? "";
 
-          //   const duration = egressInfo?.duration || egressInfo?.durationSecs;
-          //   if (duration) updateData.duration_secs = duration;
-          //   break;
-          // }
+            // Extract file info from egress results
+            const fileResults = egressInfo?.fileResults ||
+              egressInfo?.file_results;
+            if (fileResults && fileResults.length > 0) {
+              const fileResult = fileResults[0];
+              const filePath = fileResult?.filePath || fileResult?.file_path ||
+                fileResult?.location;
+              if (filePath) {
+                updateData.file_path = filePath;
+                if (recordingBaseUrl) {
+                  const relativePath = filePath.replace(/^\/?recordings\//, "");
+                  updateData.file_url = `${recordingBaseUrl}/${relativePath}`;
+                }
+              }
+              const fileSize = fileResult?.size || fileResult?.fileSize;
+              if (fileSize) updateData.file_size = fileSize;
+              // FileInfo.duration is in nanoseconds — convert to seconds.
+              const fileDuration = fileResult?.duration;
+              if (typeof fileDuration === "number" && fileDuration > 0) {
+                updateData.duration_secs = Math.round(fileDuration / 1e9);
+              }
+            }
 
-          // case "egress_failed":
-          //   updateData.status = "failed";
-          //   updateData.error_message = egressInfo?.error || "Egress failed";
-          //   updateData.completed_at = new Date().toISOString();
-          //   break;
+            const duration = egressInfo?.duration || egressInfo?.durationSecs;
+            if (duration) updateData.duration_secs = duration;
+            break;
+          }
+
+          case "egress_failed":
+            updateData.status = "failed";
+            updateData.error_message = egressInfo?.error ||
+              egressInfo?.details ||
+              "Recorder failed (see VC server logs)";
+            updateData.completed_at = new Date().toISOString();
+            break;
 
           case "egress_ended":
             // Only set uploading if currently recording (not already completed/failed)
@@ -130,10 +146,20 @@ Deno.serve(async (req: Request) => {
         }
 
         if (Object.keys(updateData).length > 0) {
-          const { error } = await supabaseClient
+          // Non-terminal promotions (started/updated/ended) must never
+          // clobber a terminal row — a late heartbeat arriving after
+          // egress_completed/failed would otherwise resurrect the recording.
+          // Terminal writes (completed/failed) always apply.
+          const isTerminalWrite = event.event === "egress_completed" ||
+            event.event === "egress_failed";
+          let query = supabaseClient
             .from("session_recordings")
             .update(updateData)
             .eq("egress_id", egressId);
+          if (!isTerminalWrite) {
+            query = query.in("status", ["starting", "recording", "uploading"]);
+          }
+          const { error } = await query;
 
           if (error) {
             console.error("Error updating session_recording:", error);

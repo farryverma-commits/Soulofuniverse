@@ -75,6 +75,11 @@ export const MeetingPage: React.FC = () => {
         setMentorId(session.mentor_id);
 
         if (session.status !== "live") {
+          if (session.status === "cancelled") {
+            setStatus("error");
+            setErrorMsg("This session was cancelled by the host.");
+            return;
+          }
           setStatus("not_started");
           return;
         }

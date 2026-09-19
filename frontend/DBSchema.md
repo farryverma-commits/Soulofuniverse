@@ -177,7 +177,9 @@ Stores the scheduled meetings created by mentors.
 **RLS Rules:**
 
 - `Approved users can view sessions via JWT`: `SELECT` where `auth.jwt() #>> '{app_metadata, user_status}' = 'approved'` (tightened in `20260819000001_admin_cohost_session_participants.sql`).
-- `Mentor manage`: Mentors can `INSERT`, `UPDATE`, `DELETE` where `auth.uid() = mentor_id`. Admin session lifecycle (start/end/recording) is via `livekit-manage-session` service role, not direct table writes.
+- `Mentor manage`: Mentors can `INSERT`, `UPDATE`, `DELETE` where `auth.uid() = mentor_id` (DELETE added in `20260919114743_cancel_delete_sessions.sql`). Admin session lifecycle (start/end/cancel/delete/recording) is via `livekit-manage-session` service role, not direct table writes.
+
+**Lifecycle:** `scheduled` → `live` (`start`) → `completed` (`end`); `scheduled` → `cancelled` (`cancel`, hidden from all student queries which filter `status IN ('scheduled','live')`, host-visible until hard-deleted); `scheduled`/`cancelled` → hard `DELETE` (`delete_session`, children CASCADE). `live` sessions can never be deleted.
 
 ---
 
