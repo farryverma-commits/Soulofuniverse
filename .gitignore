@@ -64,5 +64,8 @@ egress_request.json
 infra/livekit-server-monitor.sh
 livekit-scheduler/
 supabase/migrations/
-frontend/pnpm-lock.yaml
+.agent
+.mypy_cache
+.pytest_cache
+.reticle
 frontend/nginx.conf
