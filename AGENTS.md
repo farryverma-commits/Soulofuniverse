@@ -107,6 +107,7 @@ Track what's built, in progress, or planned. Update this section whenever featur
 | Feedback Form | Built | Simple `/feedback` page (category + message) for all roles; admin review is a separate "Feedback inbox" nav section at `/admin/feedback` (never embedded in User Management), backed by `feedback` table |
 | Video Topic Timestamping + Search | Built | Admin-only point marks (`video_timestamps`) on a `topics` master (topics == tags, `/admin/topics` CRUD + inline create in editor); library topic search returns moment cards that play from the exact second (`VideoPlayer exactSeek`); in-player mark chips; search/play telemetry (`topic_interactions`) powers "Because you watch X" row + admin trending |
 | Video Review-to-Publish | Built | Engine lands transcodes as `under_review`; `/admin/videos` review queue + publish/unpublish in timestamp editor; library shows only `published` (RLS + client filter) |
+| Security Headers (Observatory) | Built | Nginx `frontend/nginx.conf` sets HSTS/CSP/XFO/nosniff/Referrer/COOP/COEP (CSP allowlists Supabase + LiveKit + videos hosts, `script-src 'self'` via external `/theme.js`); edge functions use `_shared/cors.ts` allowlist (`FRONTEND_ORIGINS`, fallback `https://soulofuniverse.com`); `video-service` `SecurityHeaders` middleware sets nosniff/SAMEORIGIN/Referrer/COOP (+HSTS on HTTPS) |
 
 ## Common Workflows
 - **Adding a new table:** Create migration in `supabase/`, update RLS, update `frontend/DBSchema.md`

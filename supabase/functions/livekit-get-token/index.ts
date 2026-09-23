@@ -1,16 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js";
 import { AccessToken, RoomServiceClient } from "npm:livekit-server-sdk@2.1.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeadersFor, handleCorsPreflight } from "../_shared/cors.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req);
+  if (preflight) return preflight;
+  const corsHeaders = corsHeadersFor(req);
 
   console.log("livekit-get-token request received");
 

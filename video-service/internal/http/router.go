@@ -15,6 +15,7 @@ func Router(s *Server, v *auth.Verifier) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
+	r.Use(SecurityHeaders)
 
 	r.Get("/healthz", s.Healthz)
 	r.Get("/readyz", s.Readyz)

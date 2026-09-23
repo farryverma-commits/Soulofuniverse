@@ -65,3 +65,4 @@ infra/livekit-server-monitor.sh
 livekit-scheduler/
 supabase/migrations/
 frontend/pnpm-lock.yaml
+frontend/nginx.conf

@@ -8,16 +8,7 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Soul Of Universe</title>
-    <script>
-      (function () {
-        var t = localStorage.getItem("sou-theme");
-        if (!t)
-          t = window.matchMedia("(prefers-color-scheme: light)").matches
-            ? "light"
-            : "dark";
-        document.documentElement.setAttribute("data-theme", t);
-      })();
-    </script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>
