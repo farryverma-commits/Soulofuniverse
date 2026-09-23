@@ -270,10 +270,10 @@ export const VideoTimestampEditor: React.FC = () => {
           <button
             onClick={togglePublish}
             disabled={publishing}
-            className={`flex-none h-11 px-5 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 ${
+            className={`flex-none h-11 px-5 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border active:scale-[0.97] ${
               published
-                ? "bg-danger/10 hover:bg-danger/20 text-danger"
-                : "bg-success/10 hover:bg-success/20 text-success"
+                ? "bg-error/10 hover:bg-error/20 text-error border-error/20 hover:border-error/30"
+                : "bg-success/10 hover:bg-success/20 text-success border-success/20 hover:border-success/30"
             }`}
           >
             {publishing ? (
@@ -486,7 +486,7 @@ export const VideoTimestampEditor: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setDeleteId(mark.id)}
-                      className="flex-none h-11 w-11 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 inline-flex items-center justify-center transition-colors"
+                      className="flex-none h-11 w-11 rounded-lg text-text-muted hover:text-error hover:bg-error/10 inline-flex items-center justify-center transition-colors cursor-pointer"
                       aria-label={`Remove ${mark.topicName} mark`}
                     >
                       <Trash2 size={15} />
@@ -525,7 +525,7 @@ export const VideoTimestampEditor: React.FC = () => {
               </button>
               <button
                 onClick={handleDeleteMark}
-                className="h-11 px-5 rounded-lg bg-danger hover:bg-danger/90 text-white text-xs font-bold transition-colors"
+                className="h-11 px-5 rounded-lg bg-error hover:bg-error/90 text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 Remove
               </button>

@@ -163,7 +163,7 @@ export const VideoReviewQueue: React.FC = () => {
         </div>
       ) : loadError && videos.length === 0 ? (
         <div className="card p-8 text-center space-y-3">
-          <CircleAlert className="w-12 h-12 text-danger mx-auto" />
+          <CircleAlert className="w-12 h-12 text-error mx-auto" />
           <p className="text-text font-medium">Could not load videos</p>
           <p className="text-text-muted text-sm">
             Check your connection and try again. Your work is safe.
@@ -245,10 +245,10 @@ export const VideoReviewQueue: React.FC = () => {
                           ? `Unpublish ${video.title}`
                           : `Publish ${video.title}`
                       }
-                      className={`flex-1 sm:flex-none h-11 px-4 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 ${
+                      className={`flex-1 sm:flex-none h-11 px-4 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border active:scale-[0.97] ${
                         published
-                          ? "bg-danger/10 hover:bg-danger/20 text-danger"
-                          : "bg-success/10 hover:bg-success/20 text-success"
+                          ? "bg-error/10 hover:bg-error/20 text-error border-error/20 hover:border-error/30"
+                          : "bg-success/10 hover:bg-success/20 text-success border-success/20 hover:border-success/30"
                       }`}
                     >
                       {togglingId === video.id ? (

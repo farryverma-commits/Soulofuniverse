@@ -277,7 +277,7 @@ export const TopicManagement: React.FC = () => {
                         onClick={() =>
                           setDeleteTarget({ id: topic.id, name: topic.name })
                         }
-                        className="flex-1 sm:flex-none h-11 px-4 rounded-lg bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                        className="flex-1 sm:flex-none h-11 px-4 rounded-lg bg-error/10 hover:bg-error/20 text-error border border-error/20 hover:border-error/30 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-[0.97]"
                         aria-label={`Delete ${topic.name}`}
                       >
                         <Trash2 size={14} />
@@ -333,7 +333,7 @@ export const TopicManagement: React.FC = () => {
                 ref={confirmButtonRef}
                 onClick={handleDelete}
                 disabled={deleting}
-                className="h-11 px-5 rounded-lg bg-danger hover:bg-danger/90 text-white text-xs font-bold transition-colors disabled:opacity-50"
+                className="h-11 px-5 rounded-lg bg-error hover:bg-error/90 text-white text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
               </button>

@@ -62,6 +62,6 @@ migration.sql
 graphify-out
 egress_request.json
 infra/livekit-server-monitor.sh
-oracle-scheduler/
+livekit-scheduler/
 supabase/migrations/
 frontend/pnpm-lock.yaml

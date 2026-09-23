@@ -109,7 +109,7 @@ export const FeedbackManagement: React.FC = () => {
   const newCount = items.filter((i) => i.status === "new").length;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 min-h-[calc(100vh-4rem)]">
       <div>
         <Link
           to="/admin"
@@ -169,7 +169,7 @@ export const FeedbackManagement: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+        <div className="flex-1 min-h-[50vh] space-y-3 overflow-y-auto pr-1 pb-2">
           {items.map((item) => {
             const meta = CATEGORY_META[item.category] ?? CATEGORY_META.other;
             return (
