@@ -818,12 +818,12 @@ function MyVideoConference({
   const [sidebarTab, setSidebarTab] = useState<"chat" | "participants">("chat");
   const [isRecording, setIsRecording] = useState(false);
   const [egressId, setEgressId] = useState<string | null>(null);
-  // Recording lifecycle phase — the button shows Starting progress until the
-  // recorder is confirmed active (DB row 'recording' via webhook
-  // egress_started/updated), and the timer only runs in 'recording'. This
-  // mirrors the LiveKit EgressStatus: EGRESS_STARTING (0) -> EGRESS_ACTIVE
-  // (1); EGRESS_FAILED (4) / ABORTED (5) / LIMIT_REACHED (6) land in 'failed'
-  // with the server message surfaced as a toast.
+  // Recording lifecycle — LiveKit-native. The server drives the live UI:
+  // `room.isRecording` + `RoomEvent.RecordingStatusChanged` confirm start/stop
+  // for every participant including the starter (room updates, unlike
+  // data-channel broadcasts, reach everyone). The DB (`session_recordings`)
+  // is only the artifact log for history/playback, plus one-shot backfills
+  // (egress_id, started_at, failed message) — the live UI never polls it.
   const [recordingPhase, setRecordingPhase] = useState<
     "idle" | "starting" | "recording" | "failed"
   >("idle");
@@ -831,6 +831,13 @@ function MyVideoConference({
   const recordingStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  // Mirrors server-confirmed live state so DB fallbacks can never downgrade a
+  // recording the server already confirmed (e.g. a stale 'starting' row when
+  // the webhook is down).
+  const recordingLiveRef = useRef(false);
+  // Consecutive watchdog rounds still stuck in 'starting' — fails out with
+  // Retry after a few instead of spinning forever.
+  const recordingWatchdogAttemptsRef = useRef(0);
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
     null,
   );
@@ -901,98 +908,123 @@ function MyVideoConference({
     chatMessages.length,
   );
 
-  // Watchdog: if the recorder never confirms (webhook lost, Chrome never
-  // opened), fail out of the Starting spinner instead of hanging forever.
-  // Declared before syncRecordingFromDb (which arms it) via a ref so the
-  // callback always sees the latest sync without a dependency cycle.
-  const syncRecordingFromDbRef = useRef<() => Promise<void>>(async () => {});
+  // Watchdog: if the server never confirms (egress Recorder down, event
+  // missed), fail out of the Starting spinner instead of hanging forever.
+  // After a few stuck rounds the start is treated as failed with Retry
+  // (the server signal is the only live authority now, so a silent server
+  // means the recording genuinely isn't capturing).
+  const syncRecordingBackfillRef = useRef<() => Promise<void>>(
+    async () => {},
+  );
+  const confirmLiveRecording = useCallback(
+    (opts?: { backfill?: boolean }) => {
+      if (recordingStartTimeoutRef.current) {
+        clearTimeout(recordingStartTimeoutRef.current);
+        recordingStartTimeoutRef.current = null;
+      }
+      recordingLiveRef.current = true;
+      recordingWatchdogAttemptsRef.current = 0;
+      setIsRecording(true);
+      setRecordingPhase("recording");
+      setRecordingError(null);
+      setRecordingStartTime((prev) => prev ?? Date.now());
+      if (opts?.backfill !== false) void syncRecordingBackfillRef.current();
+    },
+    [],
+  );
   const armRecordingStartTimeout = useCallback(() => {
     if (recordingStartTimeoutRef.current) return;
     recordingStartTimeoutRef.current = setTimeout(() => {
       recordingStartTimeoutRef.current = null;
       setRecordingPhase((prev) => {
         if (prev !== "starting") return prev;
-        // Re-sync once — the row may have flipped to recording/failed while
-        // the timer was pending (sync is skipped while toggling, but the
-        // toggle has finished by now).
-        void syncRecordingFromDbRef.current();
+        // The server guards the confirm — confirmLiveRecording flips the
+        // phase off 'starting', so reaching here means the server stayed
+        // silent for the whole window.
+        recordingWatchdogAttemptsRef.current += 1;
+        if (recordingWatchdogAttemptsRef.current >= 3) {
+          recordingWatchdogAttemptsRef.current = 0;
+          setIsRecording(false);
+          setRecordingStartTime(null);
+          setRecordingError(
+            "Recorder didn't confirm. Check that the VC server is reachable, then try again.",
+          );
+          setRecordingPhase("failed");
+          return "failed";
+        }
+        // One-shot DB backfill in case the row carries news the server
+        // event didn't (egress_id, started_at, failed message), then re-arm.
+        void syncRecordingBackfillRef.current();
+        armRecordingStartTimeout();
         return prev;
       });
-    }, 45000);
+    }, 15000);
   }, []);
 
-  // Single source of truth for recording state: the active session_recordings
-  // row. Hosts re-sync from it on events and poll mismatches so the mentor and
-  // admin co-host never drift apart — broadcasts only ever act as triggers,
-  // never as state (they are client-forgeable; the DB row is not).
-  //
-  // The row status drives the phase machine:
-  //   'starting'  -> phase 'starting' (spinner, no timer — Chrome still
-  //                  spinning up, egress_started not yet received)
-  //   'recording' -> phase 'recording' (REC chip + timer from server started_at)
-  //   no row + error_message row -> phase 'failed' (toast with server message)
-  //   no row at all -> phase 'idle'
-  const syncRecordingFromDb = useCallback(async () => {
+  // DB backfill only — never drives the live UI directly. Reads the active
+  // row once to restore egress_id (stop needs it), started_at (timer sync
+  // across hosts), or a failed message. Skipped while a toggle is in flight,
+  // and never downgrades a server-confirmed recording.
+  const syncRecordingBackfill = useCallback(async () => {
     if (!isHost || isRecordingTogglingRef.current) return;
-    const { data } = await supabase
-      .from("session_recordings")
-      .select("egress_id, status, started_at, error_message")
-      .eq("session_id", sessionId)
-      .in("status", ["starting", "recording"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (data) {
-      if (data.status === "recording") {
-        if (recordingStartTimeoutRef.current) {
-          clearTimeout(recordingStartTimeoutRef.current);
-          recordingStartTimeoutRef.current = null;
+    try {
+      const { data } = await supabase
+        .from("session_recordings")
+        .select("egress_id, status, started_at, error_message")
+        .eq("session_id", sessionId)
+        .in("status", ["starting", "recording"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recordingLiveRef.current) {
+        // Server already confirmed live: only fill in gaps (egress_id,
+        // started_at precision), never touch phase/isRecording.
+        if (data?.egress_id) setEgressId((prev) => prev ?? data.egress_id);
+        if (data?.status === "recording" && data.started_at) {
+          const serverStart = new Date(data.started_at).getTime();
+          setRecordingStartTime((prev) =>
+            prev == null || Math.abs(serverStart - prev) > 5000
+              ? serverStart
+              : prev,
+          );
         }
-        setIsRecording(true);
-        setRecordingPhase("recording");
-        setRecordingError(null);
-        setEgressId(data.egress_id);
-        // started_at is stamped server-side — both hosts' timers stay in sync.
-        setRecordingStartTime(new Date(data.started_at).getTime());
-      } else {
-        // Still 'starting' — keep the Starting progress visible, no timer.
-        setIsRecording(false);
-        setRecordingPhase((prev) => (prev === "failed" ? prev : "starting"));
-        setEgressId(data.egress_id);
-        setRecordingStartTime(null);
-        armRecordingStartTimeout();
+        return;
       }
-      return;
+      if (data) {
+        if (data.egress_id) setEgressId((prev) => prev ?? data.egress_id);
+        if (data.status === "recording") {
+          // Row says recording but the server hasn't — adopt it (webhook
+          // beat the room update), still anchored on server truth next.
+          confirmLiveRecording({ backfill: false });
+          if (data.started_at) {
+            setRecordingStartTime(new Date(data.started_at).getTime());
+          }
+        }
+        return;
+      }
+      const { data: failed } = await supabase
+        .from("session_recordings")
+        .select("error_message, created_at")
+        .eq("session_id", sessionId)
+        .eq("status", "failed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recordingLiveRef.current || isRecordingTogglingRef.current) return;
+      if (failed) {
+        setIsRecording(false);
+        setEgressId(null);
+        setRecordingStartTime(null);
+        setRecordingPhase("failed");
+        setRecordingError(
+          failed.error_message || "Recorder failed to start. Please try again.",
+        );
+      }
+    } catch {
+      /* best-effort backfill — the server signal owns the UI */
     }
-
-    // No active row — check for a failed start to surface the server message.
-    const { data: failed } = await supabase
-      .from("session_recordings")
-      .select("error_message, created_at")
-      .eq("session_id", sessionId)
-      .eq("status", "failed")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (recordingStartTimeoutRef.current) {
-      clearTimeout(recordingStartTimeoutRef.current);
-      recordingStartTimeoutRef.current = null;
-    }
-    setIsRecording(false);
-    setEgressId(null);
-    setRecordingStartTime(null);
-    if (failed) {
-      setRecordingPhase("failed");
-      setRecordingError(
-        failed.error_message || "Recorder failed to start. Please try again.",
-      );
-    } else {
-      setRecordingPhase("idle");
-      setRecordingError(null);
-    }
-  }, [isHost, sessionId, armRecordingStartTimeout]);
-  syncRecordingFromDbRef.current = syncRecordingFromDb;
+  }, [isHost, sessionId, confirmLiveRecording]);
+  syncRecordingBackfillRef.current = syncRecordingBackfill;
 
   useEffect(() => {
     return () => {
@@ -1000,24 +1032,63 @@ function MyVideoConference({
         clearTimeout(recordingStartTimeoutRef.current);
         recordingStartTimeoutRef.current = null;
       }
+      recordingLiveRef.current = false;
+      recordingWatchdogAttemptsRef.current = 0;
     };
   }, []);
 
-  // Restore recording state from DB on mount (handles page refresh
-  // mid-recording). Hosts only — mentor sees own sessions, admins see all
-  // (session_recordings RLS); students have no SELECT here by design.
+  // LiveKit is the live authority: the server's recording flag confirms
+  // start/stop for ALL participants including the starter. The DB backfill
+  // only fills gaps (egress_id, started_at precision) — never state.
   useEffect(() => {
-    void syncRecordingFromDb();
-  }, [syncRecordingFromDb]);
+    if (!room) return;
+    const onRecordingStatusChanged = (recording: boolean) => {
+      if (!isHost) return;
+      if (recording) {
+        confirmLiveRecording();
+      } else if (recordingPhase === "recording" || recordingLiveRef.current) {
+        // Server says stopped — clear everything (stop path mirrors this).
+        if (recordingStartTimeoutRef.current) {
+          clearTimeout(recordingStartTimeoutRef.current);
+          recordingStartTimeoutRef.current = null;
+        }
+        recordingLiveRef.current = false;
+        recordingWatchdogAttemptsRef.current = 0;
+        setIsRecording(false);
+        setRecordingPhase("idle");
+        setRecordingError(null);
+        setRecordingStartTime(null);
+      }
+    };
+    room.on(RoomEvent.RecordingStatusChanged, onRecordingStatusChanged);
+    // Catch up in case the room was already recording when this listener
+    // attached (refresh mid-recording, or event fired before mount).
+    if (room.isRecording && isHost) {
+      confirmLiveRecording();
+    }
+    return () => {
+      room.off(RoomEvent.RecordingStatusChanged, onRecordingStatusChanged);
+    };
+  }, [room, isHost, recordingPhase, confirmLiveRecording]);
 
-  // Hosts: catch desyncs that events or the poll reveal — e.g. the other host
-  // stopped or restarted a recording, or this client missed broadcasts after a
-  // reconnect. Fires only when the event/poll-derived signal disagrees with
-  // local state, so it cannot loop.
+  // Restore live recording state on mount (refresh mid-recording): the room
+  // flag is the authority, the DB backfill fills gaps. Hosts only — RLS
+  // keeps students out by design.
   useEffect(() => {
-    if (!isHost || remoteRecording === isRecording) return;
-    void syncRecordingFromDb();
-  }, [remoteRecording, isRecording, isHost, syncRecordingFromDb]);
+    if (!isHost) return;
+    if (room?.isRecording) confirmLiveRecording();
+    else void syncRecordingBackfill();
+  }, [isHost, room, sessionId, confirmLiveRecording, syncRecordingBackfill]);
+
+  // Hosts: catch desyncs the server signal reveals — e.g. the other host
+  // stopped or restarted a recording, or this client missed the event after
+  // a reconnect. The room flag decides; the backfill fills gaps.
+  useEffect(() => {
+    if (!isHost || !room) return;
+    if (room.isRecording === isRecording) return;
+    if (room.isRecording) confirmLiveRecording();
+    else void syncRecordingBackfill();
+  }, [remoteRecording, isRecording, isHost, room, confirmLiveRecording, syncRecordingBackfill]);
 
   // Recording duration timer — switches to h:mm:ss past one hour.
   useEffect(() => {
@@ -1321,13 +1392,13 @@ function MyVideoConference({
           data.action === "RECORDING_STARTED" ||
           data.action === "RECORDING_STOPPED"
         ) {
-          // Hosts: re-sync from the DB row — the broadcast is only a trigger;
-          // the record is the source of truth (broadcasts are client-
-          // forgeable, DB state is not). Students: trust the chip update only
-          // from host senders (same predicate as the poll's host scan), so a
-          // forged message can't hide an active recording indicator.
+          // Hosts: the server signal owns their UI — the broadcast only nudges
+          // the backfill (egress_id / started_at / failed message). Students:
+          // trust the chip update only from host senders (same predicate as the
+          // poll's host scan), so a forged message can't hide an active
+          // recording indicator.
           if (isHost) {
-            void syncRecordingFromDb();
+            void syncRecordingBackfill();
           } else {
             const sentByHost =
               participant &&
@@ -1370,7 +1441,7 @@ function MyVideoConference({
     return () => {
       room.off("dataReceived", onDataReceived);
     };
-  }, [room, localParticipant, isHost, syncRecordingFromDb]);
+  }, [room, localParticipant, isHost, syncRecordingBackfill]);
 
   const handleMuteAll = async () => {
     if (!isHost || !localParticipant) return;
@@ -1403,12 +1474,15 @@ function MyVideoConference({
     setIsRecordingToggling(true);
     isRecordingTogglingRef.current = true;
     if (!stopping) {
-      // Optimistic Starting UI — the spinner shows until the recorder
-      // confirms (DB row 'recording'); the timer starts only on confirm.
+      // Optimistic Starting UI — the spinner shows until the LIVEKIT SERVER
+      // confirms via RecordingStatusChanged; the timer starts only on
+      // confirm, never on click.
       setRecordingPhase("starting");
       setRecordingError(null);
       setIsRecording(false);
       setRecordingStartTime(null);
+      recordingLiveRef.current = false;
+      recordingWatchdogAttemptsRef.current = 0;
     }
     try {
       const {
@@ -1458,6 +1532,8 @@ function MyVideoConference({
           clearTimeout(recordingStartTimeoutRef.current);
           recordingStartTimeoutRef.current = null;
         }
+        recordingLiveRef.current = false;
+        recordingWatchdogAttemptsRef.current = 0;
         setIsRecording(false);
         setRecordingPhase("idle");
         setRecordingError(null);
@@ -1465,19 +1541,15 @@ function MyVideoConference({
         setRecordingStartTime(null);
         toast.success("Recording stopped");
       } else {
-        // EGRESS_ACTIVE (1): recorder already capturing — confirm now.
+        // EGRESS_ACTIVE (1): the server confirms capture instantly.
         // EGRESS_STARTING (0, the normal case): stay in Starting until the
-        // webhook flips the row to 'recording'. The timer starts on confirm,
-        // never on click.
+        // LiveKit server fires RecordingStatusChanged (room signal reaches
+        // the starter too — own data broadcasts don't). The timer starts on
+        // server confirm, never on click.
         setEgressId(data.egress_id ?? null);
         const sdkStatus = data.egress_status;
         if (sdkStatus === 1) {
-          if (recordingStartTimeoutRef.current) {
-            clearTimeout(recordingStartTimeoutRef.current);
-            recordingStartTimeoutRef.current = null;
-          }
-          setIsRecording(true);
-          setRecordingPhase("recording");
+          confirmLiveRecording({ backfill: false });
           setRecordingStartTime(Date.now());
           toast.success("Recording started");
         } else if (
@@ -1497,10 +1569,9 @@ function MyVideoConference({
         }
       }
 
-      // Broadcast to participants (instant REC chip) and mirror the flag in
-      // the host's metadata so the 3s poll can restore it for late joiners.
-      // On start the broadcast goes out while still 'starting' — the host's
-      // own timer still waits for the DB row to flip to 'recording'.
+      // Broadcast to participants (instant REC chip for students) and mirror
+      // the flag in the host's metadata so the 3s poll can restore it for
+      // late joiners. The host's own UI waits only on the server signal.
       try {
         const encoder = new TextEncoder();
         await localParticipant?.publishData(
@@ -1522,10 +1593,14 @@ function MyVideoConference({
     } catch (err) {
       console.error("Recording toggle failed:", err);
       if (!stopping) {
-        // Generic (non-typed) start failure — drop back to idle with a toast.
-        // The failed-row sync on next poll may upgrade this to 'failed' with
-        // the server message.
-        setRecordingPhase("idle");
+        // Generic (non-typed) start failure — one backfill for a failed row
+        // with the server message, else drop back to idle with a toast.
+        await syncRecordingBackfill();
+        setRecordingPhase((prev) => {
+          if (prev === "failed") return prev;
+          if (recordingLiveRef.current) return "recording";
+          return "idle";
+        });
       }
       toast.error(
         err instanceof Error ? err.message : "Recording toggle failed",
